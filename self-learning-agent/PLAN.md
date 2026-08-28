@@ -1,0 +1,410 @@
+# Build `sla`: Profile-Scoped Memory and Skills CLI for Agents
+
+## Summary
+
+Build a Node.js CLI, in plain JavaScript, that manages agent profiles under `~/.sla/` using Hermes-inspired patterns:
+
+- facts in bounded profile memory files
+- procedures in filesystem-native skill directories
+- thin host-installed skills that call the CLI rather than reimplement storage logic
+- lightweight operational metadata for stats and verification
+- publish-ready npm packaging
+
+The first implementation will support local profile management end to end, Codex skill installation end to end, and an adapter boundary for Claude/other hosts later. It will also include npm release readiness, with package metadata collected from the user during implementation before release-related files are finalized.
+
+## Architecture and Public Interfaces
+
+### Storage model
+
+Use this home layout:
+
+```text
+~/.sla/
+  config.json
+  default/
+    SOUL.md
+    memories/
+      MEMORY.md
+      USER.md
+    skills/
+      .usage.json
+      <skill-name>/
+        SKILL.md
+        references/
+        templates/
+        scripts/
+        assets/
+  <profile-name>/
+    SOUL.md
+    memories/
+      MEMORY.md
+      USER.md
+    skills/
+      .usage.json
+      ...
+```
+
+Use `config.json` for:
+
+- `schemaVersion`
+- `defaultProfile`
+- installed host integration metadata
+- future migration flags if needed
+
+Keep Hermes-aligned content ownership:
+
+- `memories/MEMORY.md`: agent/project facts
+- `memories/USER.md`: user-specific preferences and stable context
+- `skills/<name>/SKILL.md`: procedure and instructions
+- `skills/.usage.json`: usage and last-activity telemetry
+- no semantic provider in v1; only built-in file-backed memory
+
+Operational rules:
+
+- schema versioning is present from day one and checked on startup
+- repo-tracked data writes use atomic write helpers everywhere
+- concurrent session safety is enforced with file locking or equivalent single-writer protection for mutable files
+- all user-facing commands support human-readable output by default and `--json` for machine-readable agent consumption
+- stats and activity metadata use one normalized telemetry shape across profiles and hosts
+- skill metadata validation requires `SKILL.md` frontmatter with at least `name` and `description`
+- profile context is a Hermes-like snapshot read path, not semantic retrieval and not automatic host injection on its own
+
+Agent retrieval model:
+
+- built-in memory remains Hermes-style whole-store snapshot recall rather than search
+- `sla profile context` is the canonical profile bootstrap read for agents
+- the profile context snapshot includes `SOUL.md`, both memory targets, and a compact skill index with usage summaries
+- full skill bodies are loaded progressively with `sla skill view`, not injected into the context snapshot
+- Codex host skills must explicitly call `sla profile context`; there is no hidden runtime prompt injection in v1
+
+Persistence classification rules:
+
+- store durable declarative facts, constraints, environment notes, and stable preferences in memory
+- store user-specific stable preferences and identity/context in the `user` memory target
+- store reusable multi-step workflows, checklists, prompt recipes, decision trees, and command runbooks as skills
+- do not store ephemeral turn-local details unless the user explicitly asks or the content is clearly durable
+- `sla profile classify` is advisory only; all writes remain explicit CLI mutations
+
+### CLI surface
+
+Plan the CLI as `sla`, implemented with `commander`.
+
+Core commands:
+
+- `sla install`
+  Creates `~/.sla`, writes global config, creates the default profile, and bootstraps the required directory and file structure.
+- `sla help [command]`
+  Shows top-level help or command-specific help, including examples and default-profile behavior.
+- `sla profile create <name>`
+  Creates a new named profile with `SOUL.md`, `memories/`, `skills/`, and initial sidecar files.
+- `sla profile update [name]`
+  Updates profile-level metadata or scaffolded files for an existing profile; if no name is given, uses the default profile.
+- `sla profile delete <name> --yes`
+  Permanently deletes a profile after explicit confirmation, with safeguards around deleting the current default profile.
+- `sla profile list`
+  Lists all profiles and indicates which one is currently the default.
+- `sla profile dir [name]`
+  Prints the absolute filesystem path for the selected profile.
+- `sla profile context [name]`
+  Returns the canonical agent bootstrap snapshot for a profile: `SOUL.md`, bounded built-in memory, and a compact skill index.
+- `sla profile classify [name] --file <path>` or `--stdin`
+  Classifies candidate durable knowledge as `memory`, `user`, `skill`, or `none`, with a rationale and recommended write target.
+- `sla profile set-default <name>`
+  Sets the named profile as the default profile in global config.
+- `sla profile get-default`
+  Prints the current default profile name.
+- `sla soul view [name]`
+  Prints the profile’s `SOUL.md` content.
+- `sla soul edit [name] --file <path>` or `--stdin`
+  Replaces or updates the profile’s `SOUL.md` from file input or piped stdin.
+- `sla memory list [name]`
+  Lists memory entries across the profile’s built-in memory stores, with enough summary to inspect what is stored.
+- `sla memory add [name] --target memory|user`
+  Adds a new entry to `MEMORY.md` or `USER.md` for the selected profile.
+- `sla memory replace [name] --target memory|user`
+  Replaces an existing matching memory entry in the chosen memory target.
+- `sla memory remove [name] --target memory|user`
+  Removes an existing matching memory entry from the chosen memory target.
+- `sla memory view [name] --target memory|user`
+  Prints the raw contents or parsed entries of one built-in memory target.
+- `sla skill list [name]`
+  Lists installed skills for the profile using metadata-only summaries.
+- `sla skill view <skill> [name]`
+  Shows the full `SKILL.md` for a named skill, and optionally later support-file access if expanded.
+- `sla skill create <skill> [name]`
+  Creates a new skill directory and starter `SKILL.md` for the selected profile.
+- `sla skill edit <skill> [name]`
+  Replaces or updates the `SKILL.md` content for an existing skill.
+- `sla skill delete <skill> [name] --yes`
+  Deletes a skill directory after explicit confirmation.
+- `sla skill write-file <skill> --subdir references|templates|scripts|assets --path <relative-path>`
+  Writes a managed support file inside one of the allowed skill subdirectories.
+- `sla skill remove-file <skill> --path <relative-path> --yes`
+  Removes a managed support file from a skill after explicit confirmation.
+- `sla stats`
+  Shows global system metrics across all profiles, including counts and recent activity.
+- `sla stats profile [name]`
+  Shows detailed metrics for one profile, including soul, memory, and skill activity.
+- `sla host install codex`
+  Installs Codex-facing skills that teach the agent how to operate on `sla` profiles through this CLI.
+- `sla host list`
+  Lists supported host integrations and whether they are installed.
+
+Help behavior:
+
+- `sla help` prints top-level usage, major concepts, and key examples
+- `sla help <command>` prints focused help for that command path
+- help output includes curated examples so agents can find the right command without external docs
+- help output includes profile-resolution rules and default-profile behavior where relevant
+- `-h` and `--help` still work through `commander`, but `sla help` is the documented stable interface for users and agents
+
+Resolution rules:
+
+- if `[name]` is omitted, use `config.defaultProfile`
+- if no default is configured, fail explicitly
+- name collisions never guess; require exact profile or skill name
+- write operations must be atomic and path-safe
+
+Profile lifecycle policy:
+
+- deleting the default profile is refused unless the default is changed first or an explicit override flow is added later
+- profile rename is out of scope as a command in v1; if introduced later, it must update default-profile references and preserve telemetry
+- profile deletion removes profile-local memories, skills, soul, and telemetry in one operation
+
+### Installed agent skills
+
+Install Codex-hosted skills as thin wrappers that instruct the agent to use `sla` commands.
+
+First installed skills:
+
+- `/use-profile {profile}`
+- `/create-profile`
+- `/update-profile`
+
+Behavior:
+
+- `/use-profile {profile}` tells the agent to resolve the profile, load `sla profile context`, and then read from and write to that `sla` profile during the session
+- `/create-profile` scaffolds a profile and captures explicit user intent into `SOUL.md`; no automatic synthesis in v1
+- `/update-profile` updates `SOUL.md`, memories, or skills for the named profile, defaulting to the configured default when omitted
+- installed skills must explain when to use memory vs `user` vs skill storage and may use `sla profile classify` before ambiguous writes
+
+Codex installer target:
+
+- install into `~/.codex/...` using the host’s skill directory conventions
+- record installation metadata in `config.json`
+
+Host integration design:
+
+- define a host adapter abstraction in v1
+- Codex is the only concrete adapter implemented now
+- adapters own host-specific install paths, generated skill wrappers, and installation status checks
+- core profile, memory, skill, stats, and telemetry logic stays host-agnostic
+
+## Step Plan
+
+### Step 1: Project bootstrap and command shell [DONE]
+
+What this achieves:
+Create the Node package, executable entrypoint, command parser, help system, error model, JSON output conventions, and a small internal module layout that keeps storage logic separate from command handlers.
+
+Results:
+- runnable `sla` executable from local dev
+- consistent help output and subcommand structure
+- explicit `sla help` command wired to the same command registry as `commander`
+- shared utilities for path resolution, profile resolution, validation, JSON output, and formatted CLI output
+- curated example snippets embedded in help text
+- test harness for command-level integration tests
+
+### Step 2: `~/.sla` install, config, and schema management [DONE]
+
+What this achieves:
+Initialize the application home, global config, schema version, and default profile so the system has a stable source of truth from the first run.
+
+Results:
+- `sla install` creates `~/.sla/`
+- writes `config.json` with `schemaVersion`, `defaultProfile`, and host-install metadata container
+- creates `~/.sla/default/`
+- creates `SOUL.md`, `memories/MEMORY.md`, `memories/USER.md`, `skills/`, and `skills/.usage.json`
+- startup checks schema version and routes through a migration hook
+- install is idempotent and safe to rerun
+
+### Step 3: Profile lifecycle management [DONE]
+
+What this achieves:
+Let users create, inspect, select, and remove named profiles cleanly, with explicit default-profile handling and no ambiguous behavior.
+
+Results:
+- create named profiles under `~/.sla/<name>/`
+- list existing profiles and identify the default
+- return absolute path for a profile directory
+- set and get the default profile through `config.json`
+- delete requires `--yes`
+- deleting the current default is refused unless the default is changed first
+- rename remains intentionally unimplemented in v1, with that restriction documented in help and README
+- profile names are validated and normalized consistently
+
+### Step 4: SOUL management [DONE]
+
+What this achieves:
+Make each profile’s purpose explicit and editable so agents can understand the profile’s role before interacting with its memories and skills.
+
+Results:
+- `SOUL.md` exists for every profile
+- CLI can print current soul content
+- CLI can replace or update soul content from stdin or file input
+- update flow preserves atomic writes, locking, and clean error messages
+- `SOUL.md` template is minimal and host-agnostic
+
+### Step 5: Hermes-style memory management [DONE]
+
+What this achieves:
+Implement the built-in durable fact store using Hermes-style flat markdown files, while keeping operations simple and safe for agents.
+
+Results:
+- two memory targets per profile: `memory` and `user`
+- add, replace, remove, list, and view operations for memory entries
+- entries stored in markdown files with a stable delimiter model rather than JSON records
+- duplicate adds are rejected
+- writes are atomic and concurrency-safe
+- memory commands support `--json`
+- stats metadata captures last modified target, last operation time, and entry counts in a normalized telemetry format
+- command behavior is explicit when content is missing or matches multiple entries
+
+### Step 6: Skill management and filesystem contract [DONE]
+
+What this achieves:
+Implement local procedural knowledge storage that mirrors Hermes’ skill directory model and supports agent-safe maintenance.
+
+Results:
+- create skill directories with required `SKILL.md`
+- validate `SKILL.md` frontmatter with required `name` and `description`
+- support edit and delete operations for skill bodies
+- support managed files only inside `references`, `templates`, `scripts`, and `assets`
+- block traversal and unsafe paths
+- usage sidecar tracks view, edit, and use timestamps and counters using the shared telemetry shape
+- skill listing returns metadata-only summaries suitable for agent consumption
+- skill commands support `--json`
+
+### Step 7: Stats and verification surface [DONE]
+
+What this achieves:
+Give users and agents quick proof that storage is working, with both global and profile-scoped visibility.
+
+Results:
+- global stats show profile count, default profile, total memories, total skills, and latest activity across all profiles
+- per-profile stats show memory entry counts by target, skill count, last modified memory, last modified skill, and last activity time
+- stats surface the “last what” value in a compact human-readable form
+- usage sidecars are the source for skill activity; file mtimes supplement memory and soul activity
+- stats output is available in human-readable and `--json` forms
+- telemetry schema is stable and documented for reuse by future host adapters
+
+### Step 8: Codex host installer and adapter abstraction [DONE]
+
+What this achieves:
+Install thin integration skills so agents in Codex can operate on `sla` profiles using CLI commands instead of manual filesystem conventions, while setting the design boundary for future hosts.
+
+Results:
+- `sla host install codex` installs the starter skills into the Codex skill location
+- installed skills include `/use-profile`, `/create-profile`, and `/update-profile`
+- skill content explicitly tells the agent to use `sla` commands for profile reads and writes
+- installation is idempotent and tracked in global config
+- host adapter interface is implemented and Codex conforms to it
+- `sla host list` reports adapter availability and installation status
+
+### Step 9: Hardening, packaging, and npm release readiness [DONE]
+
+What this achieves:
+Make the CLI safe to evolve after first release, resilient against partial writes or home layout changes, and ready to publish as a real npm package.
+
+Results:
+- atomic write and locking helpers are reused everywhere mutable state is written
+- friendly failures for missing install, missing default profile, invalid profile names, invalid skill paths, and invalid frontmatter
+- `package.json` is finalized for npm publishing with `name`, `version`, `bin`, `files`, `engines`, `license`, `repository`, and publish-safe metadata
+- packaging includes only required runtime files and excludes accidental publish artifacts
+- publish artifact validation checks tarball contents so tests, local fixtures, and unrelated files are not leaked
+- package metadata values are collected from the user during implementation before release files are finalized
+- `npm pack` succeeds and produces a correct tarball
+- tarball install smoke test confirms the `sla` binary works after global or local package install
+- package is ready for `npm publish`
+- README includes install, bootstrap, help, JSON output, and release-oriented quickstart guidance centered on `sla help`
+
+### Step 10: Hermes-like profile context and persistence guidance [PLANNED]
+
+What this achieves:
+Give Codex-hosted agents a canonical, Hermes-like way to bootstrap profile context at profile switch time, while making memory-vs-skill persistence decisions explicit and consistent.
+
+Results:
+- `sla profile context [name]` returns the canonical profile bootstrap snapshot for agents
+- profile context includes `SOUL.md`, `memory`, `user`, and a compact skill index with usage metadata
+- profile context human and JSON outputs are both optimized for direct agent consumption
+- `sla skill list` JSON includes usage summary without requiring full skill body loads
+- `sla profile classify [name]` classifies candidate durable knowledge as `memory`, `user`, `skill`, or `none`
+- classification returns a short rationale and the recommended write target or skill slug
+- classification is advisory only; all persistence still happens through explicit `sla memory ...`, `sla skill ...`, or `sla soul ...` commands
+- installed Codex `/use-profile` workflow requires loading `sla profile context` when switching profiles
+- installed Codex skills document the memory-vs-skill storage policy instead of leaving it implicit
+
+## Test Plan
+
+Cover these scenarios:
+
+- fresh `sla install` on a clean machine
+- rerunning `sla install` without duplicating or corrupting state
+- schema version mismatch routes through the migration guard
+- `sla help` top-level output
+- `sla help profile create` and equivalent command-path help output
+- creating multiple profiles and switching default
+- omitting profile name and correctly falling back to default
+- refusing operations when no default exists
+- refusing deletion of the current default profile
+- adding, replacing, and removing memory entries in both targets
+- duplicate memory add rejection
+- concurrent write protection for soul, memory, and skill mutations
+- creating a skill, viewing it, editing it, and managing support files
+- rejecting traversal paths, invalid subdirs, and invalid `SKILL.md` frontmatter
+- deleting profiles and skills only with confirmation flags
+- global stats after mixed profile activity
+- per-profile stats after soul, memory, and skill updates
+- `--json` output shape for profile, memory, skill, stats, and host commands
+- Codex host install on first run and re-run
+- installed `/use-profile` workflow correctly points the session at the chosen profile by instruction
+- `sla profile context` returns a full bootstrap snapshot for empty and populated profiles
+- default-profile resolution works correctly for `sla profile context`
+- `sla profile classify` returns `memory`, `user`, `skill`, and `none` for representative inputs
+- skill list JSON exposes usage summaries without loading full skill bodies
+- installed `/use-profile` workflow explicitly loads `sla profile context` before later profile-scoped commands
+- `npm pack` output installs cleanly and exposes the `sla` binary
+- published-package dry run verifies required files are present and unexpected files are absent
+- invalid profile names, missing skills, and ambiguous references fail without guessing
+
+## NPM Release Inputs To Ask The User For During Implementation
+
+Before finalizing publish-ready package files, ask the user for:
+
+- npm package name
+- initial version
+- license
+- repository URL
+- author or organization name
+- npm scope or unscoped preference
+- minimum supported Node version
+- package description
+- keywords
+- whether the package should be public immediately or kept private first
+
+If any of these are missing, stop and ask rather than guessing.
+
+## Assumptions and Defaults
+
+- implementation is plain JavaScript on Node, no TypeScript
+- `commander` is the CLI library
+- built-in memory is Hermes-style flat markdown files, not JSON records
+- profile memories use exactly two stores in v1: `MEMORY.md` and `USER.md`
+- profile authoring is scaffold-only in v1; no AI synthesis of `SOUL.md` or starter memories
+- Hermes equivalence in Codex is wrapper-enforced bootstrap, not host-level automatic prompt injection
+- `sla profile context` is necessary for Hermes-like recall in Codex, but the host wrapper must explicitly call it
+- stats include usage telemetry, not just raw filesystem counts
+- Codex is the only concrete host installer in v1
+- profile omission always means “use default profile”
+- global state lives in `~/.sla/config.json`; profile state lives inside each profile directory
+- npm publish happens only after package metadata has been explicitly provided by the user

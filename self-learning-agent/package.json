@@ -1,0 +1,47 @@
+{
+  "name": "self-learning-agent-cli",
+  "version": "1.0.0",
+  "description": "CLI for managing profile-scoped agent memory, skills, and Codex host wrappers.",
+  "author": "Arturo Clark",
+  "bin": {
+    "sla": "./bin/sla.js"
+  },
+  "type": "commonjs",
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arturoclark/self-learning-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arturoclark/self-learning-agent/issues"
+  },
+  "homepage": "https://github.com/arturoclark/self-learning-agent#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node ./bin/sla.js"
+  },
+  "keywords": [
+    "cli",
+    "agent-memory",
+    "agents",
+    "codex",
+    "memory",
+    "profile",
+    "skills"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0"
+  }
+}

@@ -1,0 +1,246 @@
+const { attachExamples } = require("../lib/examples");
+const { writeResult } = require("../lib/output");
+const {
+  createSkillReference,
+  createSkill,
+  deleteSkill,
+  editSkill,
+  listSkills,
+  removeSkillFile,
+  viewSkill,
+  writeSkillFile,
+} = require("../lib/skills");
+const {
+  validateProfileName,
+  validateRelativeManagedPath,
+  validateSkillCategory,
+  validateSkillName,
+  validateSkillSubdir,
+} = require("../lib/validation");
+
+function registerSkillCommands(program) {
+  const skill = program.command("skill").description("Manage skills within a profile.");
+
+  skill
+    .command("list")
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .description("List skills for a profile.")
+    .addHelpText("after", attachExamples(["sla skill list", "sla skill list research --json"]))
+    .action(async (...args) => {
+      const name = args[0];
+      const command = args.at(-1);
+      const result = await listSkills(name);
+      const human =
+        result.skills.length === 0
+          ? "No skills found."
+          : result.skills.map((entry) => `${entry.skill}: ${entry.description}`).join("\n");
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human },
+      );
+    });
+
+  skill
+    .command("view")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .description("Show a skill SKILL.md.")
+    .addHelpText("after", attachExamples(["sla skill view deploy", "sla skill view deploy research"]))
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await viewSkill(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: result.raw.trimEnd() },
+      );
+    });
+
+  skill
+    .command("create")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .description("Create a new skill.")
+    .addHelpText("after", attachExamples(["sla skill create deploy", "sla skill create deploy research"]))
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await createSkill(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: `Created skill '${result.skill}' for profile '${result.profile}'.` },
+      );
+    });
+
+  skill
+    .command("create-reference")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .requiredOption("--path <relativePath>", "Reference file path inside references/.", validateRelativeManagedPath)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .option("--title <title>", "Reference title for generated scaffolds.")
+    .option("--file <path>", "Read reference content from a file.")
+    .option("--stdin", "Read reference content from stdin.")
+    .description("Create a reference markdown file for a skill.")
+    .addHelpText(
+      "after",
+      attachExamples([
+        "sla skill create-reference deploy research --path release-flow.md --title \"Release Flow\"",
+        "cat notes.md | sla skill create-reference deploy --path incident-analysis.md --stdin",
+      ]),
+    )
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await createSkillReference(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: `Created ${result.path} for skill '${result.skill}' in profile '${result.profile}'.` },
+      );
+    });
+
+  skill
+    .command("edit")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .option("--file <path>", "Read replacement content from a file.")
+    .option("--stdin", "Read replacement content from stdin.")
+    .description("Replace or update a SKILL.md.")
+    .addHelpText("after", attachExamples(["sla skill edit deploy research --file ./SKILL.md", "cat SKILL.md | sla skill edit deploy --stdin"]))
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await editSkill(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: `Updated SKILL.md for '${result.skill}' in profile '${result.profile}'.` },
+      );
+    });
+
+  skill
+    .command("delete")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .requiredOption("--yes", "Confirm permanent deletion.")
+    .description("Delete a skill.")
+    .addHelpText("after", attachExamples(["sla skill delete deploy research --yes"]))
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await deleteSkill(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: `Deleted skill '${result.deletedSkill}' from profile '${result.profile}'.` },
+      );
+    });
+
+  skill
+    .command("write-file")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .requiredOption("--subdir <name>", "Managed skill subdirectory.", validateSkillSubdir)
+    .requiredOption("--path <relativePath>", "Relative path inside the managed subdirectory.", validateRelativeManagedPath)
+    .option("--file <path>", "Read file content from a file.")
+    .option("--stdin", "Read file content from stdin.")
+    .description("Write a managed skill support file.")
+    .addHelpText("after", attachExamples(["sla skill write-file deploy research --subdir scripts --path check.sh --file ./check.sh", "cat check.sh | sla skill write-file deploy --subdir scripts --path check.sh --stdin"]))
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await writeSkillFile(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: `Wrote ${result.path} for skill '${result.skill}' in profile '${result.profile}'.` },
+      );
+    });
+
+  skill
+    .command("remove-file")
+    .argument("<skill>", "Skill name.", validateSkillName)
+    .argument("[name]", "Profile name.", validateOptionalProfileName)
+    .option("--category <name>", "Skill category for Hermes storage.", validateSkillCategory)
+    .requiredOption("--path <relativePath>", "Relative path inside the skill directory.", validateRelativeManagedPath)
+    .requiredOption("--yes", "Confirm permanent deletion.")
+    .description("Remove a managed skill support file.")
+    .addHelpText("after", attachExamples(["sla skill remove-file deploy research --path scripts/check.sh --yes"]))
+    .action(async (...args) => {
+      const skillName = args[0];
+      const name = args[1];
+      const options = args[2];
+      const command = args.at(-1);
+      const result = await removeSkillFile(skillName, name, options);
+
+      return writeResult(
+        command,
+        {
+          ok: true,
+          data: result,
+        },
+        { human: `Removed ${result.path} from skill '${result.skill}' in profile '${result.profile}'.` },
+      );
+    });
+}
+
+function validateOptionalProfileName(value) {
+  if (value == null) {
+    return value;
+  }
+
+  return validateProfileName(value);
+}
+
+module.exports = {
+  registerSkillCommands,
+};
