@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff"
+  short_description: "Write restart-ready context handoffs"
+  default_prompt: "Use $handoff to write a complete handoff for this task with context-name=task-name."

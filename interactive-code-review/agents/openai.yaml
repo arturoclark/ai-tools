@@ -1,0 +1,4 @@
+interface:
+  display_name: "Interactive Code Review"
+  short_description: "Explain current Git changes in requirement-aware file order"
+  default_prompt: "Use $interactive-code-review to explain the current Git changes against these requirements in implementation order:"
