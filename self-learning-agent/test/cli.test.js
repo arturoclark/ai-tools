@@ -947,7 +947,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
     installedAt: listedParsed.data.hosts[0].installedAt,
   });
   assert.deepEqual(listedParsed.data.hosts[1], {
-    host: "cursor",
+    host: "claude",
     available: true,
     installed: false,
     installPath: null,
@@ -959,6 +959,18 @@ test("rerunning codex host install is idempotent and host list reports status", 
     installedAt: null,
   });
   assert.deepEqual(listedParsed.data.hosts[2], {
+    host: "cursor",
+    available: true,
+    installed: false,
+    installPath: null,
+    hooksConfigPath: null,
+    stopHookPath: null,
+    hookScope: null,
+    repositoryPath: null,
+    installedSkills: ["/use-profile", "/create-profile", "/update-profile"],
+    installedAt: null,
+  });
+  assert.deepEqual(listedParsed.data.hosts[3], {
     host: "hermes",
     available: true,
     installed: false,
@@ -973,6 +985,43 @@ test("rerunning codex host install is idempotent and host list reports status", 
   });
   assert.deepEqual(listedParsed.ok, true);
   assert.ok(listedParsed.data.hosts[0].installedAt);
+});
+
+test("installs Claude Code host wrappers and merges a managed Stop hook into settings", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-test-"));
+  await fs.writeFile(
+    path.join(claudeHome, "settings.json"),
+    `${JSON.stringify({ permissions: { allow: ["Bash(npm test)"] } }, null, 2)}\n`,
+  );
+
+  const result = run(["host", "install", "claude", "--json"], {
+    env: { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome },
+  });
+  assert.equal(result.status, 0);
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.data.host, "claude");
+  assert.equal(parsed.data.installPath, path.join(claudeHome, "skills"));
+  assert.equal(parsed.data.hooksConfigPath, path.join(claudeHome, "settings.json"));
+  assert.equal(parsed.data.stopHookPath, path.join(claudeHome, "hooks", "sla-stop-hook.js"));
+  await assertPathExists(path.join(claudeHome, "skills", "sla-use-profile", "SKILL.md"));
+
+  const settings = JSON.parse(await fs.readFile(path.join(claudeHome, "settings.json"), "utf8"));
+  assert.deepEqual(settings.permissions.allow, ["Bash(npm test)"]);
+  assert.equal(settings.hooks.Stop[0].hooks[0].type, "command");
+  assert.equal(
+    settings.hooks.Stop[0].hooks[0].command,
+    `node ${JSON.stringify(path.join(claudeHome, "hooks", "sla-stop-hook.js"))}`,
+  );
+
+  const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "claude-repo-"));
+  const localResult = run(["host", "install", "claude", "--repository", repositoryPath, "--yes", "--json"], {
+    env: { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome },
+  });
+  assert.equal(localResult.status, 0);
+  const localSettings = JSON.parse(await fs.readFile(path.join(repositoryPath, ".claude", "settings.json"), "utf8"));
+  assert.equal(localSettings.hooks.Stop[0].hooks[0].command, "node .claude/hooks/sla-stop-hook.js");
 });
 
 test("installs Cursor host wrappers into the configured Cursor home and records metadata", async () => {

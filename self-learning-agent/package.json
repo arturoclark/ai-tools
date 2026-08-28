@@ -1,7 +1,7 @@
 {
   "name": "self-learning-agent-cli",
   "version": "1.0.0",
-  "description": "CLI for managing profile-scoped agent memory, skills, and Codex host wrappers.",
+  "description": "CLI for managing profile-scoped agent memory, skills, and host wrappers.",
   "author": "Arturo Clark",
   "bin": {
     "sla": "./bin/sla.js"
@@ -35,6 +35,7 @@
     "cli",
     "agent-memory",
     "agents",
+    "claude-code",
     "codex",
     "memory",
     "profile",

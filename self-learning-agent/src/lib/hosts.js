@@ -11,6 +11,11 @@ const {
   getCodexHooksPath,
   getCodexSkillPath,
   getCodexSkillsPath,
+  getClaudeHookScriptPath,
+  getClaudeHooksPath,
+  getClaudeSettingsPath,
+  getClaudeSkillPath,
+  getClaudeSkillsPath,
   getCursorHookScriptPath,
   getCursorHooksConfigPath,
   getCursorHooksPath,
@@ -29,7 +34,7 @@ const CODEX_STOP_HOOK_STATUS_MESSAGE = "Checking whether SLA memories or skills 
 const CURSOR_STOP_HOOK_EVENT = "stop";
 
 function getSupportedHosts() {
-  return [createCodexAdapter(), createCursorAdapter(), createHermesAdapter()];
+  return [createCodexAdapter(), createClaudeAdapter(), createCursorAdapter(), createHermesAdapter()];
 }
 
 function getHostAdapter(hostName) {
@@ -227,6 +232,89 @@ function createCodexAdapter() {
         repositoryPath: installed ? hookTarget.repositoryPath : hostConfig.repositoryPath || null,
         installedSkills,
         installedAt: installed ? hostConfig.installedAt || null : null,
+      };
+    },
+  };
+}
+
+function createClaudeAdapter() {
+  const skills = buildHostSkillDefinitions("claude");
+
+  return {
+    name: "claude",
+    async requiresOverwrite(options = {}) {
+      const existingFiles = [];
+      const hookTarget = await resolveClaudeHookTarget(options);
+
+      for (const skill of skills) {
+        const markdownPath = `${getClaudeSkillPath(skill.key)}/SKILL.md`;
+        if (await pathExists(markdownPath)) {
+          existingFiles.push(markdownPath);
+        }
+      }
+
+      if (await pathExists(hookTarget.stopHookPath)) {
+        existingFiles.push(hookTarget.stopHookPath);
+      }
+
+      return { requiresOverwrite: existingFiles.length > 0, existingFiles };
+    },
+    async install(options = {}) {
+      const installPath = getClaudeSkillsPath();
+      const createdFiles = [];
+      const updatedFiles = [];
+      const unchangedFiles = [];
+      const hookTarget = await resolveClaudeHookTarget(options);
+
+      await ensureDirectory(installPath);
+      for (const skill of skills) {
+        const skillPath = getClaudeSkillPath(skill.key);
+        const markdownPath = `${skillPath}/SKILL.md`;
+        await ensureDirectory(skillPath);
+        await writeTrackedFile(markdownPath, skill.skillMarkdown, { createdFiles, updatedFiles, unchangedFiles });
+      }
+
+      await ensureDirectory(hookTarget.hooksPath);
+      await writeTrackedFile(hookTarget.stopHookPath, renderClaudeStopHookScript(), {
+        createdFiles, updatedFiles, unchangedFiles,
+      });
+      const settingsWriteResult = await writeClaudeSettings(hookTarget);
+      createdFiles.push(...settingsWriteResult.createdFiles);
+      updatedFiles.push(...settingsWriteResult.updatedFiles);
+      unchangedFiles.push(...settingsWriteResult.unchangedFiles);
+
+      if (options.gitignore && hookTarget.scope === "repository" && hookTarget.repositoryPath) {
+        const gitignoreResult = await ensureRepositoryClaudeGitignore(hookTarget.repositoryPath);
+        createdFiles.push(...gitignoreResult.createdFiles);
+        updatedFiles.push(...gitignoreResult.updatedFiles);
+        unchangedFiles.push(...gitignoreResult.unchangedFiles);
+      }
+
+      return {
+        installPath, hooksConfigPath: hookTarget.hooksConfigPath, stopHookPath: hookTarget.stopHookPath,
+        hookScope: hookTarget.scope, repositoryPath: hookTarget.repositoryPath,
+        installedSkills: HOST_SKILL_COMMANDS, createdFiles, updatedFiles, unchangedFiles,
+        configEntry: {
+          available: true, installed: true, installPath, hooksConfigPath: hookTarget.hooksConfigPath,
+          stopHookPath: hookTarget.stopHookPath, hookScope: hookTarget.scope,
+          repositoryPath: hookTarget.repositoryPath, installedAt: new Date().toISOString(),
+          installedSkills: HOST_SKILL_COMMANDS,
+        },
+      };
+    },
+    async getStatus(config) {
+      const hostConfig = config.hosts?.claude || {};
+      const installedSkills = hostConfig.installedSkills || HOST_SKILL_COMMANDS;
+      const hookTarget = await resolveConfiguredClaudeHookTarget(hostConfig);
+      const installed = await isClaudeHostInstalled(hookTarget, skills);
+      return {
+        host: "claude", available: true, installed,
+        installPath: installed ? hostConfig.installPath || getClaudeSkillsPath() : hostConfig.installPath || null,
+        hooksConfigPath: installed ? hookTarget.hooksConfigPath : hostConfig.hooksConfigPath || null,
+        stopHookPath: installed ? hookTarget.stopHookPath : hostConfig.stopHookPath || null,
+        hookScope: installed ? hookTarget.scope : hostConfig.hookScope || null,
+        repositoryPath: installed ? hookTarget.repositoryPath : hostConfig.repositoryPath || null,
+        installedSkills, installedAt: installed ? hostConfig.installedAt || null : null,
       };
     },
   };
@@ -721,6 +809,20 @@ async function isCursorHostInstalled(hookTarget, skills) {
   return hasManagedCursorStopHook(config, hookTarget);
 }
 
+async function isClaudeHostInstalled(hookTarget, skills) {
+  for (const skill of skills) {
+    if (!(await pathExists(`${getClaudeSkillPath(skill.key)}/SKILL.md`))) {
+      return false;
+    }
+  }
+
+  if (!(await pathExists(hookTarget.stopHookPath)) || !(await pathExists(hookTarget.hooksConfigPath))) {
+    return false;
+  }
+
+  return hasManagedClaudeStopHook(await readJsonIfExists(hookTarget.hooksConfigPath, "claude"), hookTarget);
+}
+
 async function isHermesHostInstalled(profile, skills) {
   for (const skill of skills) {
     const markdownPath = path.join(getSkillPath(profile, skill.key, { category: "general" }), "SKILL.md");
@@ -995,6 +1097,10 @@ function renderCursorStopHookScript() {
   ].join("\n");
 }
 
+function renderClaudeStopHookScript() {
+  return renderCodexStopHookScript();
+}
+
 async function writeCodexHooksConfig(hookTarget) {
   const configPath = hookTarget.hooksConfigPath;
   const existing = (await readJsonIfExists(configPath, "codex")) || {};
@@ -1059,6 +1165,24 @@ async function writeCursorHooksConfig(hookTarget) {
   };
 }
 
+async function writeClaudeSettings(hookTarget) {
+  const configPath = hookTarget.hooksConfigPath;
+  const existing = (await readJsonIfExists(configPath, "claude")) || {};
+  const nextConfig = mergeClaudeStopHook(existing, hookTarget);
+  const serialized = `${JSON.stringify(nextConfig, null, 2)}\n`;
+
+  if (!(await pathExists(configPath))) {
+    await writeFileAtomic(configPath, serialized);
+    return { createdFiles: [configPath], updatedFiles: [], unchangedFiles: [] };
+  }
+  const current = await fs.readFile(configPath, "utf8");
+  if (current === serialized) {
+    return { createdFiles: [], updatedFiles: [], unchangedFiles: [configPath] };
+  }
+  await writeFileAtomic(configPath, serialized);
+  return { createdFiles: [], updatedFiles: [configPath], unchangedFiles: [] };
+}
+
 async function ensureRepositoryCodexGitignore(repositoryPath) {
   const gitignorePath = `${repositoryPath}/.gitignore`;
   if (!(await pathExists(gitignorePath))) {
@@ -1115,6 +1239,19 @@ async function ensureRepositoryCursorGitignore(repositoryPath) {
     updatedFiles: [gitignorePath],
     unchangedFiles: [],
   };
+}
+
+async function ensureRepositoryClaudeGitignore(repositoryPath) {
+  const gitignorePath = `${repositoryPath}/.gitignore`;
+  if (!(await pathExists(gitignorePath))) {
+    return { createdFiles: [], updatedFiles: [], unchangedFiles: [] };
+  }
+  const current = await fs.readFile(gitignorePath, "utf8");
+  if (current.split(/\r?\n/).some((line) => line.trim() === ".claude/" || line.trim() === ".claude")) {
+    return { createdFiles: [], updatedFiles: [], unchangedFiles: [gitignorePath] };
+  }
+  await writeFileAtomic(gitignorePath, appendGitignoreEntry(current, ".claude/"));
+  return { createdFiles: [], updatedFiles: [gitignorePath], unchangedFiles: [] };
 }
 
 function appendGitignoreEntry(current, entry) {
@@ -1219,6 +1356,34 @@ function hasManagedCursorStopHook(config, hookTarget) {
   return stopEntries.some((hook) => hook?.command === expectedCommand);
 }
 
+function mergeClaudeStopHook(config, hookTarget) {
+  const hooks = isPlainObject(config.hooks) ? { ...config.hooks } : {};
+  const stopEntries = Array.isArray(hooks.Stop) ? hooks.Stop.map(cloneHookEntry) : [];
+  const managedCommand = renderClaudeStopHookCommand(hookTarget);
+  let found = false;
+
+  for (let index = 0; index < stopEntries.length; index += 1) {
+    const entry = stopEntries[index];
+    const innerHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const hookIndex = innerHooks.findIndex((hook) => isManagedClaudeStopHook(hook));
+    if (hookIndex === -1) continue;
+    found = true;
+    const nextInnerHooks = [...innerHooks];
+    nextInnerHooks[hookIndex] = { type: "command", command: managedCommand, timeout: 30 };
+    stopEntries[index] = { ...entry, hooks: nextInnerHooks };
+  }
+  if (!found) stopEntries.push({ hooks: [{ type: "command", command: managedCommand, timeout: 30 }] });
+  hooks.Stop = stopEntries;
+  return { ...config, hooks };
+}
+
+function hasManagedClaudeStopHook(config, hookTarget) {
+  const expectedCommand = renderClaudeStopHookCommand(hookTarget);
+  return (Array.isArray(config?.hooks?.Stop) ? config.hooks.Stop : []).some((entry) =>
+    Array.isArray(entry?.hooks) && entry.hooks.some((hook) => hook?.type === "command" && hook?.command === expectedCommand),
+  );
+}
+
 function renderCodexStopHookCommand(hookTarget) {
   if (hookTarget.scope === "repository") {
     return `node .codex/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`;
@@ -1235,6 +1400,12 @@ function renderCursorStopHookCommand(hookTarget) {
   return `node ${JSON.stringify(hookTarget.stopHookPath)}`;
 }
 
+function renderClaudeStopHookCommand(hookTarget) {
+  return hookTarget.scope === "repository"
+    ? `node .claude/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`
+    : `node ${JSON.stringify(hookTarget.stopHookPath)}`;
+}
+
 function isManagedCodexStopHook(hook) {
   return (
     hook?.type === "command" &&
@@ -1245,6 +1416,10 @@ function isManagedCodexStopHook(hook) {
 
 function isManagedCursorStopHook(hook) {
   return typeof hook?.command === "string" && hook.command.includes(OPENAI_STYLE_STOP_HOOK_FILE);
+}
+
+function isManagedClaudeStopHook(hook) {
+  return hook?.type === "command" && typeof hook.command === "string" && hook.command.includes(OPENAI_STYLE_STOP_HOOK_FILE);
 }
 
 function cloneHookEntry(entry) {
@@ -1343,6 +1518,27 @@ async function resolveConfiguredCursorHookTarget(hostConfig) {
   return resolveCursorHookTarget();
 }
 
+async function resolveClaudeHookTarget(options = {}) {
+  if (!options.repository) {
+    return {
+      scope: "global", repositoryPath: null, hooksPath: getClaudeHooksPath(),
+      hooksConfigPath: getClaudeSettingsPath(), stopHookPath: getClaudeHookScriptPath(OPENAI_STYLE_STOP_HOOK_FILE),
+    };
+  }
+  const repositoryPath = await resolveRepositoryPath(options.repository);
+  const hooksRoot = resolveClaudeHooksRoot(repositoryPath);
+  return {
+    scope: "repository", repositoryPath, hooksPath: `${hooksRoot}/hooks`,
+    hooksConfigPath: `${hooksRoot}/settings.json`, stopHookPath: `${hooksRoot}/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`,
+  };
+}
+
+async function resolveConfiguredClaudeHookTarget(hostConfig) {
+  return hostConfig.hookScope === "repository" && hostConfig.repositoryPath
+    ? resolveClaudeHookTarget({ repository: hostConfig.repositoryPath })
+    : resolveClaudeHookTarget();
+}
+
 async function resolveRepositoryPath(inputPath) {
   const repositoryPath = await fs.realpath(inputPath).catch((error) => {
     if (error?.code === "ENOENT") {
@@ -1386,6 +1582,10 @@ function resolveCursorHooksRoot(repositoryPath) {
   }
 
   return `${repositoryPath}/.cursor`;
+}
+
+function resolveClaudeHooksRoot(repositoryPath) {
+  return path.basename(repositoryPath) === ".claude" ? repositoryPath : `${repositoryPath}/.claude`;
 }
 
 function ensureHermesModeRequested() {

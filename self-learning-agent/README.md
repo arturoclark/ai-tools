@@ -123,12 +123,16 @@ sla skill create deploy research
 sla skill create-reference deploy research --path release-flow.md --title "Release Flow"
 sla stats profile research
 sla host install codex
+sla host install claude
 sla host install cursor
 sla host install codex .
+sla host install claude .
 sla host install cursor .
 sla host install codex . --gitignore
+sla host install claude . --gitignore
 sla host install cursor . --gitignore
 sla host install codex --repository ~/development/self-learning-agent
+sla host install claude --repository ~/development/self-learning-agent
 sla host install cursor --repository ~/development/self-learning-agent
 ```
 
@@ -163,6 +167,14 @@ sla --hermes-agent host install hermes --hermes-profile research
 - repository-local installs write a portable hook command using global `node` and a relative `.cursor/hooks/...` path so the config can be committed across machines
 - when `--gitignore` is provided for a repository-local install and the repo already has a `.gitignore`, append `.cursor/` if it is not already ignored
 - a stop hook that injects one final Cursor follow-up message for SLA persistence review before the agent finishes
+
+`sla host install claude` installs:
+
+- Claude Code skills under `~/.claude/skills/` (or under `CLAUDE_CONFIG_DIR/skills/` when set)
+- a managed stop-hook script under `~/.claude/hooks/` and an entry in `~/.claude/settings.json` by default
+- for `--repository`, the hook script and merged settings live in `<repository>/.claude/hooks/` and `<repository>/.claude/settings.json`
+- repository-local installs use the portable command `node .claude/hooks/sla-stop-hook.js`
+- with `--gitignore`, appends `.claude/` to an existing repository `.gitignore` when needed
 
 ## JSON Output
 

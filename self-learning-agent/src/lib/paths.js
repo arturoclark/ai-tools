@@ -50,6 +50,10 @@ function getCursorHome() {
   return process.env.CURSOR_HOME || path.join(os.homedir(), ".cursor");
 }
 
+function getClaudeHome() {
+  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+}
+
 function getConfigPath() {
   return path.join(getSlaHome(), "config.json");
 }
@@ -156,6 +160,26 @@ function getCursorHookScriptPath(scriptName) {
   return path.join(getCursorHooksPath(), scriptName);
 }
 
+function getClaudeSkillsPath() {
+  return path.join(getClaudeHome(), "skills");
+}
+
+function getClaudeHooksPath() {
+  return path.join(getClaudeHome(), "hooks");
+}
+
+function getClaudeSettingsPath() {
+  return path.join(getClaudeHome(), "settings.json");
+}
+
+function getClaudeSkillPath(skillName) {
+  return path.join(getClaudeSkillsPath(), skillName);
+}
+
+function getClaudeHookScriptPath(scriptName) {
+  return path.join(getClaudeHooksPath(), scriptName);
+}
+
 module.exports = {
   getAgentFlavor,
   getCodexAgentPath,
@@ -165,6 +189,12 @@ module.exports = {
   getCodexHooksPath,
   getCodexSkillPath,
   getCodexSkillsPath,
+  getClaudeHome,
+  getClaudeHookScriptPath,
+  getClaudeHooksPath,
+  getClaudeSettingsPath,
+  getClaudeSkillPath,
+  getClaudeSkillsPath,
   getCursorHookScriptPath,
   getCursorHome,
   getCursorHooksConfigPath,

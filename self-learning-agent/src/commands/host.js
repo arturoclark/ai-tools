@@ -14,22 +14,27 @@ function registerHostCommands(program) {
     .argument("<host>", "Host integration name.")
     .argument("[repository]", "Optional repository path shorthand for a repository-local hook install.")
     .option("--yes", "Overwrite existing host wrapper files without prompting.")
-    .option("--gitignore", "When installing into a repository, append .codex/ to an existing .gitignore if needed.")
-    .option("--repository <path>", "Install the host hook into a repository-local .codex directory.")
+    .option("--gitignore", "When installing into a repository, append the host configuration directory to an existing .gitignore if needed.")
+    .option("--repository <path>", "Install the host hook into a repository-local host configuration directory.")
     .option("--hermes-profile <name>", "Install Hermes wrapper skills into an existing Hermes profile.", validateProfileName)
     .description("Install host-facing wrappers.")
     .addHelpText(
       "after",
       attachExamples([
         "sla host install codex",
+        "sla host install claude",
         "sla host install cursor",
         "sla host install codex --yes",
+        "sla host install claude --yes",
         "sla host install cursor --yes",
         "sla host install codex . --yes",
+        "sla host install claude . --yes",
         "sla host install cursor . --yes",
         "sla host install codex . --gitignore --yes",
+        "sla host install claude . --gitignore --yes",
         "sla host install cursor . --gitignore --yes",
         "sla host install codex --repository ~/development/self-learning-agent",
+        "sla host install claude --repository ~/development/self-learning-agent",
         "sla host install cursor --repository ~/development/self-learning-agent",
       ]),
     )
