@@ -15,24 +15,23 @@ Turn the current working tree's changes into a clear, requirement-aware walkthro
 
 ## Write the walkthrough
 
-Open with a brief statement of the intended outcome and the reviewed change scope. Then explain every meaningful changed file in the chosen order. For each file, describe in natural language:
+Open with a brief statement of the intended outcome and the reviewed change scope. Then present the walkthrough as a single numbered Markdown list (`1.`, `2.`, and so on), in the chosen implementation order.
 
-1. what changed;
-2. why that change is needed to meet the requirement;
-3. how it works and what it affects next; and
-4. any material technical detail a manager needs to understand the trade-off, behavior, or risk.
+Each numbered item explains exactly one user-visible feature, behavior change, or tightly coupled group of changes. Do not combine independent features into one item merely because they touch related files. A group is appropriate only when its parts together deliver one behavior and separating them would make the explanation less clear.
 
-Group tightly related files where that makes the narrative easier to follow, but retain clear file-level references. Mention generated or lock files succinctly and explain what generated them when the evidence supports it. Call out a meaningful gap between the requirement and the diff plainly; do not present it as completed work.
+Write every item for a product manager: name the affected resources, screens, roles, or workflows; explain the practical before-and-after behavior; state why it matters to the requirement; and describe any important constraint, follow-on effect, trade-off, or risk in plain language. Translate implementation details into their product effect. For example, do not only say that resources replaced `user_id` with `billing_account_id`; identify the resources and explain that ownership now follows the billing account, who can change it, and what that means in the UI or workflow when the code supports those facts.
 
-Use concise Markdown headings and paragraphs. Avoid pasting large code blocks, narrating trivial formatting changes, or inventing review findings. Technical terms are welcome when they clarify the change, but define their practical effect in plain language.
+Group tightly related files within the same numbered item when they support that single behavior, while retaining clear file-level references. Mention generated or lock files succinctly and explain what generated them when the evidence supports it. Call out a meaningful gap between the requirement and the diff plainly; do not present it as completed work.
+
+Use concise Markdown headings only when they improve navigation; the substantive explanations must remain numbered list items. Avoid pasting large code blocks, narrating trivial formatting changes, or inventing review findings. Technical terms are welcome when they clarify the change, but define their practical effect in plain language.
 
 ## Source references
 
-Every substantive explanation must include a clickable local source reference. Use the exact current line numbers and paths. Format it like this:
+Every substantive claim must include a clickable local source reference immediately after the clause or sentence it supports. Do not collect several references at the end of a long explanation: when an item makes multiple distinct claims, put each reference beside its corresponding claim so the reader can tell what it proves. Use the exact current line numbers and paths. Format it like this:
 
 `[../relative/path.ext:12-20](/absolute/path/to/relative/path.ext:12)`
 
-The label gives the relevant line span; the link target uses the absolute local path and its first line so the application can open the file. Keep the reference beside the sentence it supports. For a whole small file or a non-line-based artifact, link to its first relevant line or file path.
+The label gives the relevant line span; the link target uses the absolute local path and its first line so the application can open the file. For a whole small file or a non-line-based artifact, link to its first relevant line or file path.
 
 ## Continue interactively
 
