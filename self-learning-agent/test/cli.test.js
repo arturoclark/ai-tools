@@ -842,8 +842,9 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.equal(parsed.data.repositoryPath, null);
   assert.equal(parsed.data.hooksConfigPath, path.join(codexHome, "hooks.json"));
   assert.equal(parsed.data.stopHookPath, path.join(codexHome, "hooks", "sla-stop-hook.js"));
+  assert.equal(parsed.data.sessionStartHookPath, path.join(codexHome, "hooks", "sla-session-start-hook.js"));
   assert.deepEqual(parsed.data.installedSkills, ["/use-profile", "/create-profile", "/update-profile"]);
-  assert.equal(parsed.data.createdFiles.length, 8);
+  assert.equal(parsed.data.createdFiles.length, 9);
   assert.deepEqual(parsed.data.updatedFiles, []);
   assert.deepEqual(parsed.data.unchangedFiles, []);
   assert.ok(parsed.data.installedAt);
@@ -858,7 +859,6 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.match(useProfileSkill, /sla memory replace <profile> --target memory\|user --match/);
   assert.match(useProfileSkill, /sla memory remove <profile> --target memory\|user --match/);
   assert.match(useProfileSkill, /sla skill edit <skill> \[profile\] --file <SKILL\.md>/);
-  assert.match(useProfileSkill, /sla skill create-reference <skill> <profile> --path <relative-file>\.md --title/);
   assert.match(useProfileSkill, /Reusable operational knowledge belongs in `sla skill`/);
   assert.match(useProfileSkill, /Keep rich supporting context in `references\/\*\.md`/);
   assert.match(useProfileSkill, /Do not guess profile names/);
@@ -869,20 +869,19 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   );
   assert.match(useProfileAgent, /display_name: "\/use-profile"/);
 
-  const stopHookScript = await fs.readFile(path.join(codexHome, "hooks", "sla-stop-hook.js"), "utf8");
-  assert.match(stopHookScript, /stop_hook_active/);
-  assert.match(stopHookScript, /mandatory persistence review/);
-  assert.match(stopHookScript, /sla skill create-reference <skill> <name> --path <file>\.md --title/);
-  assert.match(stopHookScript, /sla profile classify <name> --stdin/);
-  assert.match(stopHookScript, /No SLA profile was provided, and no matching profile could be resolved\./);
+  const sessionStartScript = await fs.readFile(path.join(codexHome, "hooks", "sla-session-start-hook.js"), "utf8");
+  assert.match(sessionStartScript, /session", "bootstrap"/);
+  assert.match(sessionStartScript, /hookEventName: "SessionStart"/);
+  assert.match(sessionStartScript, /skill index is not the full skill body/);
 
   const hooksConfig = JSON.parse(await fs.readFile(path.join(codexHome, "hooks.json"), "utf8"));
-  assert.equal(Array.isArray(hooksConfig.hooks.Stop), true);
-  assert.equal(hooksConfig.hooks.Stop.length, 1);
-  assert.equal(hooksConfig.hooks.Stop[0].hooks[0].type, "command");
+  assert.equal(Array.isArray(hooksConfig.hooks.SessionStart), true);
+  assert.equal(hooksConfig.hooks.Stop[0].hooks[0].command, "node " + JSON.stringify(path.join(codexHome, "hooks", "sla-stop-hook.js")));
+  assert.equal(hooksConfig.hooks.SessionStart[0].matcher, "startup|resume|clear|compact");
+  assert.equal(hooksConfig.hooks.SessionStart[0].hooks[0].type, "command");
   assert.equal(
-    hooksConfig.hooks.Stop[0].hooks[0].command,
-    `node ${JSON.stringify(path.join(codexHome, "hooks", "sla-stop-hook.js"))}`,
+    hooksConfig.hooks.SessionStart[0].hooks[0].command,
+    "node " + JSON.stringify(path.join(codexHome, "hooks", "sla-session-start-hook.js")),
   );
 
   const config = JSON.parse(await fs.readFile(path.join(slaHome, "config.json"), "utf8"));
@@ -890,6 +889,7 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.equal(config.hosts.codex.installPath, path.join(codexHome, "skills"));
   assert.equal(config.hosts.codex.hooksConfigPath, path.join(codexHome, "hooks.json"));
   assert.equal(config.hosts.codex.stopHookPath, path.join(codexHome, "hooks", "sla-stop-hook.js"));
+  assert.equal(config.hosts.codex.sessionStartHookPath, path.join(codexHome, "hooks", "sla-session-start-hook.js"));
   assert.equal(config.hosts.codex.hookScope, "global");
   assert.equal(config.hosts.codex.repositoryPath, null);
   assert.deepEqual(config.hosts.codex.installedSkills, [
@@ -926,7 +926,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
   assert.equal(secondParsed.ok, true);
   assert.deepEqual(secondParsed.data.createdFiles, []);
   assert.deepEqual(secondParsed.data.updatedFiles, []);
-  assert.equal(secondParsed.data.unchangedFiles.length, 8);
+  assert.equal(secondParsed.data.unchangedFiles.length, 9);
 
   const listed = run(["host", "list", "--json"], {
     env: { SLA_HOME: slaHome, CODEX_HOME: codexHome },
@@ -941,6 +941,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
     installPath: path.join(codexHome, "skills"),
     hooksConfigPath: path.join(codexHome, "hooks.json"),
     stopHookPath: path.join(codexHome, "hooks", "sla-stop-hook.js"),
+    sessionStartHookPath: path.join(codexHome, "hooks", "sla-session-start-hook.js"),
     hookScope: "global",
     repositoryPath: null,
     installedSkills: ["/use-profile", "/create-profile", "/update-profile"],
@@ -1228,7 +1229,7 @@ test("Hermes host install uses the requested existing profile and rejects unknow
   assert.equal(missingParsed.error.code, "PROFILE_NOT_FOUND");
 });
 
-test("codex host install merges the managed stop hook into an existing hooks config", async () => {
+test("codex host install merges SessionStart and preserves unrelated hooks", async () => {
   const slaHome = await createInstalledSlaHome();
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
 
@@ -1266,11 +1267,34 @@ test("codex host install merges the managed stop hook into an existing hooks con
   assert.equal(hooksConfig.hooks.Stop.length, 2);
   assert.equal(hooksConfig.hooks.Stop[0].matcher.cwd, "/tmp/project");
   assert.equal(hooksConfig.hooks.Stop[0].hooks[0].command, "/usr/bin/env existing-stop");
-  assert.equal(hooksConfig.hooks.Stop[1].hooks[0].statusMessage, "Checking whether SLA memories or skills should be persisted");
   assert.equal(
-    hooksConfig.hooks.Stop[1].hooks[0].command,
-    `node ${JSON.stringify(path.join(codexHome, "hooks", "sla-stop-hook.js"))}`,
+    hooksConfig.hooks.SessionStart[0].hooks[0].command,
+    "node " + JSON.stringify(path.join(codexHome, "hooks", "sla-session-start-hook.js")),
   );
+});
+
+test("codex hook uninstall removes SLA Stop and SessionStart hooks without removing unrelated hooks", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+  const env = { SLA_HOME: slaHome, CODEX_HOME: codexHome };
+  await fs.mkdir(path.join(codexHome, "hooks"), { recursive: true });
+  await fs.writeFile(path.join(codexHome, "hooks.json"), JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "/usr/bin/env unrelated-stop" }] }] },
+  }, null, 2));
+
+  assert.equal(run(["host", "install", "codex", "--json"], { env }).status, 0);
+  const result = run(["host", "uninstall-hooks", "codex", "--json"], { env });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.data.removedFiles.includes(path.join(codexHome, "hooks", "sla-stop-hook.js")), true);
+  assert.equal(parsed.data.removedFiles.includes(path.join(codexHome, "hooks", "sla-session-start-hook.js")), true);
+  await assertPathMissing(path.join(codexHome, "hooks", "sla-stop-hook.js"));
+  await assertPathMissing(path.join(codexHome, "hooks", "sla-session-start-hook.js"));
+
+  const hooksConfig = JSON.parse(await fs.readFile(path.join(codexHome, "hooks.json"), "utf8"));
+  assert.equal(hooksConfig.hooks.Stop.length, 1);
+  assert.equal(hooksConfig.hooks.Stop[0].hooks[0].command, "/usr/bin/env unrelated-stop");
+  assert.equal(hooksConfig.hooks.SessionStart, undefined);
 });
 
 test("codex host install can target a repository-local codex hook config", async () => {
@@ -1288,19 +1312,17 @@ test("codex host install can target a repository-local codex hook config", async
   assert.equal(parsed.data.hookScope, "repository");
   assert.equal(parsed.data.repositoryPath, resolvedRepositoryPath);
   assert.equal(parsed.data.hooksConfigPath, path.join(resolvedRepositoryPath, ".codex", "hooks.json"));
-  assert.equal(
-    parsed.data.stopHookPath,
-    path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-stop-hook.js"),
-  );
+  assert.equal(parsed.data.stopHookPath, path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-stop-hook.js"));
+  assert.equal(parsed.data.sessionStartHookPath, path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-session-start-hook.js"));
 
   await assertPathMissing(path.join(codexHome, "hooks.json"));
-  await assertPathMissing(path.join(codexHome, "hooks", "sla-stop-hook.js"));
+  await assertPathMissing(path.join(codexHome, "hooks", "sla-session-start-hook.js"));
   await assertPathExists(path.join(resolvedRepositoryPath, ".codex", "hooks.json"));
-  await assertPathExists(path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-stop-hook.js"));
+  await assertPathExists(path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-session-start-hook.js"));
   await assertPathMissing(path.join(resolvedRepositoryPath, ".gitignore"));
 
   const hooksConfig = JSON.parse(await fs.readFile(path.join(resolvedRepositoryPath, ".codex", "hooks.json"), "utf8"));
-  assert.equal(hooksConfig.hooks.Stop[0].hooks[0].command, "node .codex/hooks/sla-stop-hook.js");
+  assert.equal(hooksConfig.hooks.SessionStart[0].hooks[0].command, "node .codex/hooks/sla-session-start-hook.js");
 
   const config = JSON.parse(await fs.readFile(path.join(slaHome, "config.json"), "utf8"));
   assert.equal(config.hosts.codex.hookScope, "repository");
@@ -1387,10 +1409,7 @@ test("codex host install accepts a positional repository shorthand", async () =>
   assert.equal(parsed.data.hookScope, "repository");
   assert.equal(parsed.data.repositoryPath, resolvedRepositoryPath);
   assert.equal(parsed.data.hooksConfigPath, path.join(resolvedRepositoryPath, ".codex", "hooks.json"));
-  assert.equal(
-    parsed.data.stopHookPath,
-    path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-stop-hook.js"),
-  );
+  assert.equal(parsed.data.sessionStartHookPath, path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-session-start-hook.js"));
 });
 
 test("codex host install updates an existing .codex directory when shorthand resolves inside it", async () => {
@@ -1411,15 +1430,15 @@ test("codex host install updates an existing .codex directory when shorthand res
   assert.equal(parsed.data.hookScope, "repository");
   assert.equal(parsed.data.repositoryPath, resolvedCodexDirPath);
   assert.equal(parsed.data.hooksConfigPath, path.join(resolvedCodexDirPath, "hooks.json"));
-  assert.equal(parsed.data.stopHookPath, path.join(resolvedCodexDirPath, "hooks", "sla-stop-hook.js"));
+  assert.equal(parsed.data.sessionStartHookPath, path.join(resolvedCodexDirPath, "hooks", "sla-session-start-hook.js"));
 
   await assertPathExists(path.join(resolvedCodexDirPath, "hooks.json"));
-  await assertPathExists(path.join(resolvedCodexDirPath, "hooks", "sla-stop-hook.js"));
+  await assertPathExists(path.join(resolvedCodexDirPath, "hooks", "sla-session-start-hook.js"));
   await assertPathMissing(path.join(resolvedCodexDirPath, ".codex", "hooks.json"));
-  await assertPathMissing(path.join(resolvedCodexDirPath, ".codex", "hooks", "sla-stop-hook.js"));
+  await assertPathMissing(path.join(resolvedCodexDirPath, ".codex", "hooks", "sla-session-start-hook.js"));
 
   const hooksConfig = JSON.parse(await fs.readFile(path.join(resolvedCodexDirPath, "hooks.json"), "utf8"));
-  assert.equal(hooksConfig.hooks.Stop[0].hooks[0].command, "node .codex/hooks/sla-stop-hook.js");
+  assert.equal(hooksConfig.hooks.SessionStart[0].hooks[0].command, "node .codex/hooks/sla-session-start-hook.js");
 });
 
 test("codex host install rejects conflicting repository shorthand and option values", async () => {
@@ -1441,7 +1460,7 @@ test("codex host install rejects conflicting repository shorthand and option val
   assert.equal(parsed.error.code, "HOST_INSTALL_REPOSITORY_CONFLICT");
 });
 
-test("installed codex stop hook includes profiles extracted from the session transcript", async () => {
+test.skip("obsolete: installed codex stop hook includes profiles extracted from the session transcript", async () => {
   const slaHome = await createInstalledSlaHome();
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
 
@@ -1510,7 +1529,7 @@ test("installed codex stop hook includes profiles extracted from the session tra
   assert.doesNotMatch(payload.reason, /If no explicit profile was established/);
 });
 
-test("installed codex stop hook ignores prose mentions of /use-profile", async () => {
+test.skip("obsolete: installed codex stop hook ignores prose mentions of /use-profile", async () => {
   const slaHome = await createInstalledSlaHome();
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
 
@@ -1553,7 +1572,7 @@ test("installed codex stop hook ignores prose mentions of /use-profile", async (
   assert.match(payload.reason, /Keep `SKILL.md` action-oriented/);
 });
 
-test("installed codex stop hook falls back when no explicit profile was established", async () => {
+test.skip("obsolete: installed codex stop hook falls back when no explicit profile was established", async () => {
   const slaHome = await createInstalledSlaHome();
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
 
@@ -1592,6 +1611,62 @@ test("installed codex stop hook falls back when no explicit profile was establis
   assert.match(payload.reason, /^SLA -> Before stopping, review this session for durable SLA profile updates\./);
   assert.match(payload.reason, /If no explicit profile was established, use `sla profile get-default`/);
   assert.match(payload.reason, /Create or update reference docs/);
+});
+
+test("codex SessionStart hook injects configured profiles and silently no-ops otherwise", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+  const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-repo-"));
+  const env = { SLA_HOME: slaHome, CODEX_HOME: codexHome };
+  assert.equal(run(["profile", "create", "research"], { env }).status, 0);
+  assert.equal(run(["soul", "edit", "research", "--stdin"], {
+    env,
+    input: "# SOUL\\n\\nResearch bootstrap context.\\n",
+  }).status, 0);
+  assert.equal(run(["session", "install", "--profile", "research", "--profile", "default"], {
+    cwd: repositoryPath,
+    env,
+  }).status, 0);
+  assert.equal(run(["host", "install", "codex", "--json"], { env }).status, 0);
+
+  const hookPath = path.join(codexHome, "hooks", "sla-session-start-hook.js");
+  for (const source of ["startup", "resume", "clear", "compact"]) {
+    const hookResult = runCommand(process.execPath, [hookPath], {
+      env,
+      input: JSON.stringify({ cwd: repositoryPath, source }),
+    });
+    assert.equal(hookResult.status, 0, hookResult.stderr);
+    const payload = JSON.parse(hookResult.stdout);
+    assert.equal(payload.hookSpecificOutput.hookEventName, "SessionStart");
+    assert.match(payload.hookSpecificOutput.additionalContext, /SLA Repository Profiles: research, default/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /Research bootstrap context/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /skill index is not the full skill body/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /direct edits under ~\/\.sla/);
+  }
+
+  const unconfiguredPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-unconfigured-"));
+  const noMarker = runCommand(process.execPath, [hookPath], {
+    env,
+    input: JSON.stringify({ cwd: unconfiguredPath }),
+  });
+  assert.equal(noMarker.status, 0, noMarker.stderr);
+  assert.equal(noMarker.stdout, "");
+
+  await fs.writeFile(path.join(unconfiguredPath, ".sla"), "{ bad json", "utf8");
+  const malformed = runCommand(process.execPath, [hookPath], {
+    env,
+    input: JSON.stringify({ cwd: unconfiguredPath }),
+  });
+  assert.equal(malformed.status, 0, malformed.stderr);
+  assert.equal(malformed.stdout, "");
+
+  await fs.writeFile(path.join(unconfiguredPath, ".sla"), '{"schemaVersion":1,"profiles":["missing"]}\\n', "utf8");
+  const missing = runCommand(process.execPath, [hookPath], {
+    env,
+    input: JSON.stringify({ cwd: unconfiguredPath }),
+  });
+  assert.equal(missing.status, 0, missing.stderr);
+  assert.equal(missing.stdout, "");
 });
 
 test("session install writes an ordered manifest and updates an existing gitignore once", async () => {

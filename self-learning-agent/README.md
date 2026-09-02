@@ -159,6 +159,22 @@ The manifest stores ordered profile names only; it never stores profile content,
 
 `session bootstrap [directory] --json` walks up from the supplied directory and uses the nearest `.sla` file. It returns the selected profiles and their canonical bootstrap contexts. A repository without `.sla` returns `found: false`; SLA does not silently substitute the global default profile. Commit `.sla` only when its selected profile names are suitable for collaborators.
 
+For Codex, install the host integration once with `sla host install codex`. Its managed `SessionStart` hook loads the repository manifest during startup, resume, clear, and compaction without creating a user-visible continuation. The injected context includes the configured profiles and a compact skill index; view a relevant skill explicitly with `sla skill view <skill> <profile>`. `/use-profile` remains available when a user intentionally overrides or adds a profile.
+
+Malformed manifests and unavailable configured profiles silently produce no SessionStart context so hook diagnostics do not reveal local paths or profile details. The existing SLA `Stop` hook remains installed for comparison; remove both managed Codex hooks with `sla host uninstall-hooks codex`.
+
+### Manual Codex SessionStart verification
+
+This read-only procedure requires an existing non-empty profile and refuses to choose one implicitly:
+
+```bash
+export SLA_LIFECYCLE_EXISTING_PROFILE=research
+node scripts/verify-codex-session-start.js > /tmp/sla-before.json
+sla session bootstrap --json
+```
+
+Create a disposable repository, write a temporary `.sla` containing that profile name, and install the Codex hook there with `sla host install codex --repository . --yes`. Start or resume Codex from that directory, then compare its injected SessionStart context to `sla profile context "$SLA_LIFECYCLE_EXISTING_PROFILE" --json`. Finally rerun `node scripts/verify-codex-session-start.js` and compare it to `/tmp/sla-before.json`; SessionStart itself does not mutate profile data.
+
 Common Hermes flows:
 
 ```bash
@@ -176,7 +192,7 @@ sla --hermes-agent host install hermes --hermes-profile research
 `sla host install codex` installs:
 
 - Codex skills under `~/.codex/skills/`
-- a managed stop-hook script under `~/.codex/hooks/` by default, or under `<repository>/.codex/hooks/` when `--repository` is provided
+- managed Stop and SessionStart hook scripts under `~/.codex/hooks/` by default, or under `<repository>/.codex/hooks/` when `--repository` is provided
 - a merged hooks config at `~/.codex/hooks.json` by default, or at `<repository>/.codex/hooks.json` when `--repository` is provided
 - repository-local installs write a portable hook command using global `node` and a relative `.codex/hooks/...` path so the config can be committed across machines
 - when `--gitignore` is provided for a repository-local install and the repo already has a `.gitignore`, append `.codex/` if it is not already ignored

@@ -112,8 +112,8 @@ Result: `npm test` passed on 2026-09-01 (55 tests). The implementation provides 
 
 ### Part 2: Silent Codex SessionStart installation and bootstrap
 
-Status: Pending
-Completed at:
+Status: Complete
+Completed at: 2026-09-01 18:31 MST
 Worktree branch: `codex-sla-lifecycle-part-02` (do not create; implement on `master`)
 
 #### What to achieve
@@ -136,6 +136,7 @@ Install a Codex `SessionStart` hook that automatically loads repository-selected
 - Do not inject the former mandatory end-of-turn persistence-review instruction in this hook. Part 3 and Part 4 replace that behavior with a silent, audit-only session-end pipeline; explicit `/use-profile` remains available when a user intentionally changes or adds profiles during a session.
 - Ensure the script does not use raw stdout from `sla` as an unchecked protocol payload. Parse the bootstrap command’s JSON, then construct the documented Codex hook response.
 - Replace the existing generated `sla-stop-hook.js` behavior. During this phase it must no longer block, emit a reason, or request persistence. Either omit its managed `Stop` config altogether or replace it with a silent enqueue-only hook introduced in Part 3; select one migration path and remove obsolete config idempotently.
+  - ~~Remove the managed Stop hook during Part 2.~~ Reason: the user needs the legacy hook available to compare its persistence behavior against the later pipeline. Corrected: install both managed Codex hooks and provide `sla host uninstall-hooks codex` to remove both SLA-managed hook entries and scripts while preserving unrelated hooks.
 - Update host-install status and overwrite detection so a prior installation migrates cleanly: stale managed stop entries/scripts are identified and removed or replaced without deleting unrelated user hooks.
 - Update Codex-specific README instructions and generated `/use-profile` skill language: `/use-profile` remains available for an explicit profile override, but a repository `.sla` bootstrap is the default session entrypoint.
 - Add an opt-in manual SessionStart integration procedure controlled by an explicit environment variable such as `SLA_LIFECYCLE_EXISTING_PROFILE`. It must verify that the named existing profile is non-empty before use, create a temporary repository `.sla` manifest pointing to it, start a Codex session, and compare the injected bootstrap context with `sla profile context <profile> --json`. The procedure must not run any SLA mutation command against that real profile.
@@ -182,6 +183,8 @@ The agent receives the same profile-scoping and lazy-skill-loading guidance supp
 - Add script-level fixtures for all bootstrap success and failure cases, including compact/resume session sources.
 - Add a documented opt-in integration script/test that refuses to run without `SLA_LIFECYCLE_EXISTING_PROFILE`, verifies the target has existing data, and snapshots it before/after to prove read-only SessionStart behavior.
 
+Verification recorded 2026-09-01 18:31 MST: `npm test` passed. Generated-hook tests cover configured multiple profiles and startup/resume/clear/compact sources, plus no marker, malformed marker, and missing profile silent no-ops. Installer tests cover SessionStart merge, preservation of the legacy Stop hook, idempotent reinstall, and managed-hook uninstall.
+
 ### Part 3: Session persistence job contract and local audit queue
 
 Status: Pending
@@ -201,7 +204,7 @@ Define a safe, provider-independent persistence-job format and queue it silently
 - Add a Codex `SessionEnd` hook that calls the enqueue command and emits no stdout on success. It must finish within Codex’s three-second SessionEnd limit.
 - Keep the persistence worker disabled by default. Enqueued jobs remain auditable pending work until a user deliberately configures and runs an evaluator.
 - Add status/list commands for pending, completed, skipped, and failed jobs, with redacted diagnostics and no transcript content by default.
-- Update the installer and migration logic to install the `SessionEnd` hook without reintroducing the old `Stop` continuation. Preserve all unrelated hooks.
+- ~~Update the installer and migration logic to install the `SessionEnd` hook without reintroducing the old `Stop` continuation.~~ Reason: legacy Stop must remain available for the comparison period. Corrected: install `SessionEnd` alongside `SessionStart` and the legacy managed `Stop` hook; preserve unrelated hooks. Part 6 retires the legacy Stop hook.
 - Seed every queue test with a disposable profile in a temporary `SLA_HOME` that contains representative soul, memory, user-memory, skill, and reference data. Use a separate disposable profile per test case or reset its temporary home between cases; never queue, evaluate, or mutate a user’s actual profile.
 
 #### Expected results
@@ -218,8 +221,8 @@ Finishing a Codex session silently records one deduplicated, profile-routed pers
 2. Add generated SessionEnd hook tests using Codex-shaped stdin and a short command timeout.
    Expected result: the hook writes no stdout on successful enqueue, exits within the configured limit, and does not alter a profile.
 
-3. Extend installer tests for merged SessionEnd config and coexistence with SessionStart and unrelated hooks.
-   Expected result: a re-run remains idempotent and does not restore the legacy blocking Stop hook.
+3. Extend installer tests for merged SessionEnd config and coexistence with SessionStart, the legacy Stop hook, and unrelated hooks.
+   Expected result: a re-run remains idempotent, keeps the legacy Stop hook available for comparison, and does not duplicate any managed hook.
 
 4. Run `npm test`.
    Expected result: queue, hook, installer, and regression tests pass.
@@ -376,6 +379,59 @@ A new user can follow the README to install both lifecycle hooks, create `.sla`,
 
 - Extend CLI/help tests for every public lifecycle command documented in the README.
 - Add a clean-environment documentation smoke-test script or fixture that follows the README quickstart using test doubles.
+
+### Part 6: Legacy Codex Stop-hook retirement
+
+Status: Pending
+Completed at:
+Worktree branch: `codex-sla-lifecycle-part-06` (do not create; implement on `master`)
+
+#### What to achieve
+
+Retire the legacy blocking Codex `Stop` hook only after the SessionStart, SessionEnd, audit queue, evaluator, and lifecycle documentation have been implemented and compared against the legacy workflow.
+
+#### Technical details
+
+- Until this part, `sla host install codex` continues to install both the legacy managed `Stop` hook and the new lifecycle hooks so their persistence behavior can be compared.
+- In this part, change `sla host install codex` so it installs only the lifecycle hooks: `SessionStart` and `SessionEnd`. It must no longer create, rewrite, or add the legacy `sla-stop-hook.js` or its managed `Stop` configuration entry.
+- Treat a regular host reinstall as the explicit migration path: remove the managed legacy Stop entry and `sla-stop-hook.js` while preserving unrelated user Stop hooks, SessionStart/SessionEnd hooks, skills, and host configuration.
+- Keep `sla host uninstall-hooks codex` as the explicit full managed-hook removal command; it removes SLA-managed Stop, SessionStart, and SessionEnd hooks if present, while preserving unrelated hooks.
+- Update host status, overwrite detection, help text, README material, and generated `/use-profile` language to describe lifecycle hooks as the default and legacy Stop persistence as retired.
+- Do not remove the legacy hook before the comparison harness in Part 4 has recorded its reviewed baseline.
+
+#### Expected results
+
+After this part, a fresh or upgraded `sla host install codex` installs no blocking legacy Stop hook. Existing unrelated host hooks remain intact, and silent SessionStart/SessionEnd lifecycle behavior is the sole SLA lifecycle integration.
+
+#### Verification
+
+• Backend
+
+1. Install Codex hooks into a fixture containing managed legacy Stop plus unrelated Stop hooks and lifecycle hooks; rerun `sla host install codex --yes`.
+   Expected result: the managed legacy Stop entry/script is removed, unrelated Stop hooks remain unchanged, and exactly one managed SessionStart and SessionEnd entry remain.
+
+2. Install into a clean fixture.
+   Expected result: no `sla-stop-hook.js` or managed blocking Stop configuration is created.
+
+3. Run `sla host uninstall-hooks codex` against fixtures containing any combination of old and new SLA hooks.
+   Expected result: all SLA-managed hooks are removed idempotently without changing unrelated hooks or host skills.
+
+4. Run `npm test`.
+   Expected result: lifecycle, migration, uninstall, and regression tests pass.
+
+#### Completion protocol
+
+1. Mark the part as done with the device date and time.
+2. Re-check the `Verification` and `Expected results` sections against the actual implementation.
+3. If anything changed, strike through the outdated text, add a short reason, and add the corrected text directly in the same section.
+4. No SLA profile is assigned for this plan; do not use `sla-use-profile` for implementation or verification.
+5. Create or update the tests described for this part.
+6. Run the relevant test commands and record the result in this plan.
+
+#### Tests to add or update
+
+- Extend `test/cli.test.js` with clean-install, upgrade-migration, and idempotent managed-hook-uninstall coverage.
+- Add fixtures proving that legacy Stop behavior remains available through Parts 2–5 and is removed only by Part 6 migration.
 
 ## Open questions
 

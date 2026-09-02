@@ -30,6 +30,8 @@ const {
 const HOST_SKILL_KEYS = ["sla-use-profile", "sla-create-profile", "sla-update-profile"];
 const HOST_SKILL_COMMANDS = ["/use-profile", "/create-profile", "/update-profile"];
 const OPENAI_STYLE_STOP_HOOK_FILE = "sla-stop-hook.js";
+const CODEX_SESSION_START_HOOK_FILE = "sla-session-start-hook.js";
+const CODEX_SESSION_START_MATCHER = "startup|resume|clear|compact";
 const CODEX_STOP_HOOK_STATUS_MESSAGE = "Checking whether SLA memories or skills should be persisted";
 const CURSOR_STOP_HOOK_EVENT = "stop";
 
@@ -77,6 +79,7 @@ async function installHost(hostName, options = {}) {
     installPath: installation.installPath,
     hooksConfigPath: installation.hooksConfigPath ?? null,
     stopHookPath: installation.stopHookPath ?? null,
+    sessionStartHookPath: installation.sessionStartHookPath ?? null,
     hookScope: installation.hookScope ?? null,
     repositoryPath: installation.repositoryPath ?? null,
     profile: installation.profile ?? null,
@@ -84,6 +87,7 @@ async function installHost(hostName, options = {}) {
     createdFiles: installation.createdFiles,
     updatedFiles: installation.updatedFiles,
     unchangedFiles: installation.unchangedFiles,
+    removedFiles: installation.removedFiles || [],
     installedAt: nextConfig.hosts[hostName].installedAt,
   };
 }
@@ -98,6 +102,18 @@ async function hostInstallRequiresOverwrite(hostName, options = {}) {
   }
 
   return adapter.requiresOverwrite(options);
+}
+
+async function uninstallHostHooks(hostName, options = {}) {
+  const adapter = getHostAdapter(hostName);
+  if (typeof adapter.uninstallHooks !== "function") {
+    throw new SLAError(`Host '${hostName}' does not support hook uninstallation.`, {
+      code: "HOST_HOOK_UNINSTALL_NOT_SUPPORTED",
+      exitCode: 2,
+    });
+  }
+
+  return adapter.uninstallHooks(options);
 }
 
 async function listHosts() {
@@ -134,8 +150,10 @@ function createCodexAdapter() {
         }
       }
 
-      if (await pathExists(hookTarget.stopHookPath)) {
-        existingFiles.push(hookTarget.stopHookPath);
+      for (const hookPath of [hookTarget.stopHookPath, hookTarget.sessionStartHookPath]) {
+        if (await pathExists(hookPath)) {
+          existingFiles.push(hookPath);
+        }
       }
 
       return {
@@ -178,7 +196,11 @@ function createCodexAdapter() {
         updatedFiles,
         unchangedFiles,
       });
-
+      await writeTrackedFile(hookTarget.sessionStartHookPath, renderCodexSessionStartHookScript(process.argv[1]), {
+        createdFiles,
+        updatedFiles,
+        unchangedFiles,
+      });
       const hooksWriteResult = await writeCodexHooksConfig(hookTarget);
       createdFiles.push(...hooksWriteResult.createdFiles);
       updatedFiles.push(...hooksWriteResult.updatedFiles);
@@ -195,6 +217,7 @@ function createCodexAdapter() {
         installPath,
         hooksConfigPath: hookTarget.hooksConfigPath,
         stopHookPath: hookTarget.stopHookPath,
+        sessionStartHookPath: hookTarget.sessionStartHookPath,
         hookScope: hookTarget.scope,
         repositoryPath: hookTarget.repositoryPath,
         installedSkills: HOST_SKILL_COMMANDS,
@@ -207,6 +230,7 @@ function createCodexAdapter() {
           installPath,
           hooksConfigPath: hookTarget.hooksConfigPath,
           stopHookPath: hookTarget.stopHookPath,
+          sessionStartHookPath: hookTarget.sessionStartHookPath,
           hookScope: hookTarget.scope,
           repositoryPath: hookTarget.repositoryPath,
           installedAt: new Date().toISOString(),
@@ -228,10 +252,31 @@ function createCodexAdapter() {
         installPath,
         hooksConfigPath: installed ? hookTarget.hooksConfigPath : hostConfig.hooksConfigPath || null,
         stopHookPath: installed ? hookTarget.stopHookPath : hostConfig.stopHookPath || null,
+        sessionStartHookPath: installed ? hookTarget.sessionStartHookPath : hostConfig.sessionStartHookPath || null,
         hookScope: installed ? hookTarget.scope : hostConfig.hookScope || null,
         repositoryPath: installed ? hookTarget.repositoryPath : hostConfig.repositoryPath || null,
         installedSkills,
         installedAt: installed ? hostConfig.installedAt || null : null,
+      };
+    },
+    async uninstallHooks(options = {}) {
+      const hookTarget = await resolveCodexHookTarget(options);
+      const removedFiles = [];
+      for (const hookPath of [hookTarget.stopHookPath, hookTarget.sessionStartHookPath]) {
+        if (await pathExists(hookPath)) {
+          await fs.unlink(hookPath);
+          removedFiles.push(hookPath);
+        }
+      }
+      const configResult = await removeManagedCodexHooksConfig(hookTarget);
+      return {
+        host: "codex",
+        hooksConfigPath: hookTarget.hooksConfigPath,
+        hookScope: hookTarget.scope,
+        repositoryPath: hookTarget.repositoryPath,
+        removedFiles: [...removedFiles, ...configResult.removedFiles],
+        updatedFiles: configResult.updatedFiles,
+        unchangedFiles: configResult.unchangedFiles,
       };
     },
   };
@@ -599,34 +644,26 @@ description: Use \`sla\` commands to switch the session to a named profile and k
 
 ## Overview
 
-Use this skill when the user asks to work inside a specific \`sla\` profile. The goal is to load the profile context first, then use the right CLI command for the kind of information you need.
+Use this skill when the user explicitly asks to switch to or add a specific \`sla\` profile. In a repository with a \`.sla\` manifest, Codex SessionStart already loads the selected profile context by default; use this skill only for an intentional override.
 
 ## Workflow
 
 1. Determine the exact profile name from the user request. If no exact name is available, say: \`No SLA profile was provided, and no matching profile could be resolved.\`
 2. Run \`sla profile dir <name>\` to verify the profile exists and capture its absolute path.
-3. Always run \`sla profile context <name> --json\` for the provided profile. This is required and not optional.
-4. Treat that returned snapshot as the active profile context for the session.
+3. Run \`sla profile context <name> --json\` to load the explicit override's snapshot.
+4. Treat that returned snapshot as the active profile context for the session. If a repository manifest already supplied profiles, keep later \`sla\` commands scoped to the correct profile.
 5. Use \`sla soul view <name>\` when you need the profile's purpose, constraints, or top-level identity as written in \`SOUL.md\`.
 6. Use \`sla memory list <name>\` or \`sla memory view <name> --target memory|user\` when you need durable facts, preferences, or user-specific context. Use \`list\` for the full current memory contents and \`view\` for one target.
 7. Use \`sla skill list <name>\` when you need the skill catalog. It is the compact index only.
 8. Use \`sla skill view <skill> <name>\` only when one of the listed skills is relevant and you need the full skill body before acting. Loading full skills depends on the task, but the profile context does not.
 9. Use \`sla stats profile <name>\` when you need activity or usage context, not for the core profile content itself.
-10. Treat persistence review as mandatory before you finish the task or end the turn. Explicitly ask: did this session produce a durable fact, a reusable skill-worthy capability, or deep supporting reference material?
-11. Persist durable facts, constraints, environment notes, and stable preferences with explicit \`sla memory\` arguments:
+10. Persist durable facts, constraints, environment notes, and stable preferences only when the user asks for a change, with explicit \`sla memory\` arguments:
     - Add: \`sla memory add <profile> --target memory|user --entry "<durable fact>"\`.
     - Replace: \`sla memory replace <profile> --target memory|user --match "<existing entry>" --entry "<replacement>"\`.
     - Remove: \`sla memory remove <profile> --target memory|user --match "<existing entry>"\`.
-12. Persist reusable repo/domain/task capabilities with \`sla skill\`. Create a scaffold with \`sla skill create <skill> [profile]\`; then write or replace its body with \`sla skill edit <skill> [profile] --file <SKILL.md>\` or by piping content to \`sla skill edit <skill> [profile] --stdin\`. Delete only when intended, using \`sla skill delete <skill> [profile] --yes\`. Store a skill when the session produced guidance that should help an agent succeed again in the same codebase, system, or recurring task family, not just when you discovered a strict step-by-step procedure.
-13. A skill is the right target when the learned material would be useful across future sessions as an operational guide, such as workflows, checklists, decision trees, debugging playbooks, deploy and release flows, repo maps, file-entrypoint maps, environment and branch rules, API integration patterns, auth and routing rules, or other recurring implementation guidance.
-14. Do not flatten that kind of reusable operational knowledge into memory entries. If it is richer than a short fact and should guide future work, it belongs in a skill even when it mixes procedure with concise reference context.
-15. Keep \`SKILL.md\` action-oriented and procedural. It should say when to use the skill, how to proceed, the important commands/files, the key decision points, and any concise operational context needed to execute correctly.
-16. When the session produces deeper material that is too large or explanatory for memory and not itself the main workflow, create or update reference docs under that skill with \`sla skill create-reference <skill> <profile> --path <relative-file>.md --title "<Title>" --file <source.md>\` (or \`--stdin\`), or \`sla skill write-file <skill> <profile> --subdir references --path <relative-file>.md --file <source.md>\` (or \`--stdin\`). The path is relative to that managed subdirectory.
-17. Use skill references for architecture maps, environment inventories, branch and deploy matrices, bug forensics, incident writeups, API shapes, file maps, implementation plans, and other rich repo context that supports a skill.
-18. If you cannot tell whether new information belongs in memory, user memory, or a skill, run \`sla profile classify <name> --stdin\` or \`--file\` before writing anything. If it is clearly reference material that belongs under an existing skill, create or update a reference doc instead of flattening it into memory.
-19. If later work in the same session spans multiple explicit \`/use-profile\` commands, persist durable memories, skills, and references against the correct profile for each piece of work instead of collapsing everything into one default profile.
-20. Only store durable knowledge learned from the session. After any needed persistence work, finish the turn.
-21. State that the session is now operating against that profile and keep subsequent \`sla\` commands scoped to it until the user changes profiles again.
+11. Persist reusable repo/domain/task capabilities with \`sla skill\` when requested. Create a scaffold with \`sla skill create <skill> [profile]\`; then write or replace its body with \`sla skill edit <skill> [profile] --file <SKILL.md>\` or by piping content to \`sla skill edit <skill> [profile] --stdin\`. Delete only when intended, using \`sla skill delete <skill> [profile] --yes\`.
+12. If you cannot tell whether new information belongs in memory, user memory, or a skill, run \`sla profile classify <name> --stdin\` or \`--file\` before writing anything.
+13. State that the session is now operating against that profile and keep subsequent \`sla\` commands scoped to it until the user changes profiles again.
 
 ## Operating Rules
 
@@ -636,8 +673,8 @@ Use this skill when the user asks to work inside a specific \`sla\` profile. The
 - Use skills for capabilities such as implementation workflows, debugging approaches, deploy/release runbooks, repo maps, environment matrices, integration patterns, file/entrypoint guides, and decision rules.
 - Keep rich supporting context in \`references/*.md\` inside the relevant skill directory when it is too detailed for \`SKILL.md\` or is supporting analysis rather than the main workflow.
 - Persist only durable knowledge; do not store turn-local or obviously temporary notes unless the user explicitly asks.
-- Before ending a profiled task, do one final persistence review for durable facts, reusable skill-worthy guidance, and supporting reference material learned during the session.
-- Use \`sla profile context\` as the required starting point for a profile session, then load more detail only when the current task needs it.
+- Do not generate a persistence-review continuation at end of turn; SessionStart only establishes context.
+- Use \`sla profile context\` for an explicit profile override, then load more detail only when the current task needs it.
 - Do not treat the compact skill index as full skill content.
 - Do not guess profile names.
 - If the profile lookup fails or the user request is ambiguous, say: \`No SLA profile was provided, and no matching profile could be resolved.\`
@@ -778,7 +815,7 @@ async function isCodexHostInstalled(hookTarget, skills) {
     }
   }
 
-  if (!(await pathExists(hookTarget.stopHookPath))) {
+  if (!(await pathExists(hookTarget.stopHookPath)) || !(await pathExists(hookTarget.sessionStartHookPath))) {
     return false;
   }
 
@@ -787,7 +824,7 @@ async function isCodexHostInstalled(hookTarget, skills) {
   }
 
   const config = await readJsonIfExists(hookTarget.hooksConfigPath, "codex");
-  return hasManagedCodexStopHook(config, hookTarget);
+  return hasManagedCodexStopHook(config, hookTarget) && hasManagedCodexSessionStartHook(config, hookTarget);
 }
 
 async function isCursorHostInstalled(hookTarget, skills) {
@@ -840,6 +877,64 @@ function renderOpenAIYaml(skill) {
     `  display_name: "${skill.command}"`,
     `  short_description: "${skill.shortDescription}"`,
     `  default_prompt: "${skill.defaultPrompt}"`,
+    "",
+  ].join("\n");
+}
+
+function renderCodexSessionStartHookScript(slaCliPath) {
+  return [
+    "#!/usr/bin/env node",
+    "",
+    'const fs = require("node:fs");',
+    'const { spawnSync } = require("node:child_process");',
+    "",
+    "const raw = fs.readFileSync(0, \"utf8\").trim();",
+    "if (!raw) process.exit(0);",
+    "",
+    "let payload;",
+    "try {",
+    "  payload = JSON.parse(raw);",
+    "} catch (_error) {",
+    "  process.exit(0);",
+    "}",
+    "",
+    "if (!payload || typeof payload !== \"object\" || typeof payload.cwd !== \"string\" || !payload.cwd) {",
+    "  process.exit(0);",
+    "}",
+    "",
+    "const result = spawnSync(process.execPath, [" + JSON.stringify(slaCliPath) + ", \"session\", \"bootstrap\", payload.cwd, \"--json\"], {",
+    "  encoding: \"utf8\",",
+    "  env: process.env,",
+    "});",
+    "",
+    "if (result.error || result.status !== 0) process.exit(0);",
+    "",
+    "let bootstrap;",
+    "try {",
+    "  bootstrap = JSON.parse(result.stdout);",
+    "} catch (_error) {",
+    "  process.exit(0);",
+    "}",
+    "",
+    "if (!bootstrap?.ok || !bootstrap.data?.found || !Array.isArray(bootstrap.data.profiles)) process.exit(0);",
+    "",
+    "const profiles = bootstrap.data.profiles;",
+    "if (!profiles.length || profiles.some((entry) => typeof entry?.profile !== \"string\" || typeof entry?.renderedContext !== \"string\")) process.exit(0);",
+    "",
+    "const names = profiles.map((entry) => entry.profile);",
+    "const policy = [",
+    "  \"# SLA Repository Profiles: \" + names.join(\", \"),",
+    "",
+    "  \"The named profiles are active for this repository. Scope every later sla operation to the correct active profile: \" + names.join(\", \") + \".\",",
+    "  \"The injected profile snapshots already contain SOUL, durable memory and user-memory entries, plus a compact skill index.\",",
+    "  \"Use sla soul view <profile> or sla memory list <profile> / sla memory view <profile> only when you need a fresher or more specific view.\",",
+    "  \"The skill index is not the full skill body. Before relying on a listed skill relevant to the task, run sla skill view <skill> <profile>.\",",
+    "  \"Use sla stats profile <profile> only for activity or usage information, and sla profile classify <profile> when a later persistence target is ambiguous.\",",
+    "  \"Change SLA-managed data through sla commands rather than direct edits under ~/.sla.\",",
+    "].join(\"\\n\");",
+    "",
+    "const additionalContext = [policy, ...profiles.map((entry) => entry.renderedContext.trim())].join(\"\\n\\n\");",
+    "process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: \"SessionStart\", additionalContext } }) + \"\\n\");",
     "",
   ].join("\n");
 }
@@ -1104,7 +1199,7 @@ function renderClaudeStopHookScript() {
 async function writeCodexHooksConfig(hookTarget) {
   const configPath = hookTarget.hooksConfigPath;
   const existing = (await readJsonIfExists(configPath, "codex")) || {};
-  const nextConfig = mergeCodexStopHook(existing, hookTarget);
+  const nextConfig = mergeCodexSessionStartHook(existing, hookTarget);
   const serialized = `${JSON.stringify(nextConfig, null, 2)}\n`;
 
   if (!(await pathExists(configPath))) {
@@ -1131,6 +1226,39 @@ async function writeCodexHooksConfig(hookTarget) {
     updatedFiles: [configPath],
     unchangedFiles: [],
   };
+}
+
+async function removeManagedCodexHooksConfig(hookTarget) {
+  const configPath = hookTarget.hooksConfigPath;
+  if (!(await pathExists(configPath))) {
+    return { removedFiles: [], updatedFiles: [], unchangedFiles: [] };
+  }
+
+  const existing = await readJsonIfExists(configPath, "codex");
+  const hooks = isPlainObject(existing.hooks) ? { ...existing.hooks } : {};
+  for (const eventName of ["Stop", "SessionStart"]) {
+    const entries = Array.isArray(hooks[eventName]) ? hooks[eventName].map(cloneHookEntry) : [];
+    const filtered = entries
+      .map((entry) => {
+        if (!Array.isArray(entry?.hooks)) return entry;
+        const remaining = entry.hooks.filter((hook) =>
+          eventName === "Stop" ? !isManagedCodexStopHook(hook) : !isManagedCodexSessionStartHook(hook),
+        );
+        return remaining.length === entry.hooks.length ? entry : { ...entry, hooks: remaining };
+      })
+      .filter((entry) => !Array.isArray(entry?.hooks) || entry.hooks.length > 0);
+    if (filtered.length > 0) hooks[eventName] = filtered;
+    else delete hooks[eventName];
+  }
+
+  const next = { ...existing, hooks };
+  const serialized = `${JSON.stringify(next, null, 2)}\n`;
+  const current = await fs.readFile(configPath, "utf8");
+  if (current === serialized) {
+    return { removedFiles: [], updatedFiles: [], unchangedFiles: [configPath] };
+  }
+  await writeFileAtomic(configPath, serialized);
+  return { removedFiles: [], updatedFiles: [configPath], unchangedFiles: [] };
 }
 
 async function writeCursorHooksConfig(hookTarget) {
@@ -1263,16 +1391,16 @@ function appendGitignoreEntry(current, entry) {
   return `${normalized}${entry}\n`;
 }
 
-function mergeCodexStopHook(config, hookTarget) {
+function mergeCodexSessionStartHook(config, hookTarget) {
   const hooks = isPlainObject(config.hooks) ? { ...config.hooks } : {};
-  const stopEntries = Array.isArray(hooks.Stop) ? hooks.Stop.map(cloneHookEntry) : [];
-  const managedCommand = renderCodexStopHookCommand(hookTarget);
+  const sessionStartEntries = Array.isArray(hooks.SessionStart) ? hooks.SessionStart.map(cloneHookEntry) : [];
+  const managedCommand = renderCodexSessionStartHookCommand(hookTarget);
   let foundGroup = false;
 
-  for (let index = 0; index < stopEntries.length; index += 1) {
-    const entry = stopEntries[index];
+  for (let index = 0; index < sessionStartEntries.length; index += 1) {
+    const entry = sessionStartEntries[index];
     const innerHooks = Array.isArray(entry.hooks) ? entry.hooks : [];
-    const hookIndex = innerHooks.findIndex((hook) => isManagedCodexStopHook(hook));
+    const hookIndex = innerHooks.findIndex((hook) => isManagedCodexSessionStartHook(hook));
     if (hookIndex === -1) {
       continue;
     }
@@ -1283,24 +1411,44 @@ function mergeCodexStopHook(config, hookTarget) {
       type: "command",
       command: managedCommand,
       timeout: 30,
-      statusMessage: CODEX_STOP_HOOK_STATUS_MESSAGE,
     };
-    stopEntries[index] = { ...entry, hooks: nextInnerHooks };
+    sessionStartEntries[index] = { ...entry, matcher: CODEX_SESSION_START_MATCHER, hooks: nextInnerHooks };
   }
 
   if (!foundGroup) {
-    stopEntries.push({
+    sessionStartEntries.push({
+      matcher: CODEX_SESSION_START_MATCHER,
       hooks: [
         {
           type: "command",
           command: managedCommand,
           timeout: 30,
-          statusMessage: CODEX_STOP_HOOK_STATUS_MESSAGE,
         },
       ],
     });
   }
 
+  const stopEntries = Array.isArray(hooks.Stop) ? hooks.Stop.map(cloneHookEntry) : [];
+  const stopCommand = renderCodexStopHookCommand(hookTarget);
+  const existingStopGroup = stopEntries.findIndex((entry) =>
+    Array.isArray(entry?.hooks) && entry.hooks.some((hook) => isManagedCodexStopHook(hook)),
+  );
+  const managedStopHook = {
+    type: "command",
+    command: stopCommand,
+    timeout: 30,
+    statusMessage: CODEX_STOP_HOOK_STATUS_MESSAGE,
+  };
+  if (existingStopGroup === -1) {
+    stopEntries.push({ hooks: [managedStopHook] });
+  } else {
+    const entry = stopEntries[existingStopGroup];
+    stopEntries[existingStopGroup] = {
+      ...entry,
+      hooks: entry.hooks.map((hook) => (isManagedCodexStopHook(hook) ? managedStopHook : hook)),
+    };
+  }
+  hooks.SessionStart = sessionStartEntries;
   hooks.Stop = stopEntries;
   return {
     ...config,
@@ -1308,18 +1456,26 @@ function mergeCodexStopHook(config, hookTarget) {
   };
 }
 
-function hasManagedCodexStopHook(config, hookTarget) {
-  const stopEntries = Array.isArray(config?.hooks?.Stop) ? config.hooks.Stop : [];
-  const expectedCommand = renderCodexStopHookCommand(hookTarget);
+function hasManagedCodexSessionStartHook(config, hookTarget) {
+  const entries = Array.isArray(config?.hooks?.SessionStart) ? config.hooks.SessionStart : [];
+  const expectedCommand = renderCodexSessionStartHookCommand(hookTarget);
 
-  return stopEntries.some((entry) =>
+  return entries.some((entry) =>
     Array.isArray(entry?.hooks) &&
     entry.hooks.some(
       (hook) =>
         hook?.type === "command" &&
-        hook?.command === expectedCommand &&
-        hook?.statusMessage === CODEX_STOP_HOOK_STATUS_MESSAGE,
+        hook?.command === expectedCommand,
     ),
+  );
+}
+
+function hasManagedCodexStopHook(config, hookTarget) {
+  const entries = Array.isArray(config?.hooks?.Stop) ? config.hooks.Stop : [];
+  const expectedCommand = renderCodexStopHookCommand(hookTarget);
+  return entries.some((entry) =>
+    Array.isArray(entry?.hooks) &&
+    entry.hooks.some((hook) => hook?.type === "command" && hook?.command === expectedCommand),
   );
 }
 
@@ -1392,6 +1548,14 @@ function renderCodexStopHookCommand(hookTarget) {
   return `node ${JSON.stringify(hookTarget.stopHookPath)}`;
 }
 
+function renderCodexSessionStartHookCommand(hookTarget) {
+  if (hookTarget.scope === "repository") {
+    return "node .codex/hooks/" + CODEX_SESSION_START_HOOK_FILE;
+  }
+
+  return "node " + JSON.stringify(hookTarget.sessionStartHookPath);
+}
+
 function renderCursorStopHookCommand(hookTarget) {
   if (hookTarget.scope === "repository") {
     return `node .cursor/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`;
@@ -1411,6 +1575,14 @@ function isManagedCodexStopHook(hook) {
     hook?.type === "command" &&
     typeof hook.command === "string" &&
     hook.command.includes(OPENAI_STYLE_STOP_HOOK_FILE)
+  );
+}
+
+function isManagedCodexSessionStartHook(hook) {
+  return (
+    hook?.type === "command" &&
+    typeof hook.command === "string" &&
+    hook.command.includes(CODEX_SESSION_START_HOOK_FILE)
   );
 }
 
@@ -1464,6 +1636,7 @@ async function resolveCodexHookTarget(options = {}) {
       hooksPath: getCodexHooksPath(),
       hooksConfigPath: getCodexHooksConfigPath(),
       stopHookPath: getCodexHookScriptPath(OPENAI_STYLE_STOP_HOOK_FILE),
+      sessionStartHookPath: getCodexHookScriptPath(CODEX_SESSION_START_HOOK_FILE),
     };
   }
 
@@ -1476,6 +1649,7 @@ async function resolveCodexHookTarget(options = {}) {
     hooksPath: `${hooksRoot}/hooks`,
     hooksConfigPath: `${hooksRoot}/hooks.json`,
     stopHookPath: `${hooksRoot}/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`,
+    sessionStartHookPath: path.join(hooksRoot, "hooks", CODEX_SESSION_START_HOOK_FILE),
   };
 }
 
@@ -1645,4 +1819,5 @@ module.exports = {
   hostInstallRequiresOverwrite,
   installHost,
   listHosts,
+  uninstallHostHooks,
 };

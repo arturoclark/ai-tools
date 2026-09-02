@@ -1,7 +1,7 @@
 const readline = require("node:readline/promises");
 const { stdin, stdout } = require("node:process");
 const { attachExamples } = require("../lib/examples");
-const { hostInstallRequiresOverwrite, installHost, listHosts } = require("../lib/hosts");
+const { hostInstallRequiresOverwrite, installHost, listHosts, uninstallHostHooks } = require("../lib/hosts");
 const { SLAError } = require("../lib/errors");
 const { writeResult } = require("../lib/output");
 const { validateProfileName } = require("../lib/validation");
@@ -110,6 +110,27 @@ function registerHostCommands(program) {
         },
         { human },
       );
+    });
+
+  host
+    .command("uninstall-hooks")
+    .argument("<host>", "Host integration name.")
+    .argument("[repository]", "Optional repository path shorthand for a repository-local hook uninstall.")
+    .option("--repository <path>", "Remove managed hooks from a repository-local host configuration directory.")
+    .description("Remove SLA-managed hooks while preserving host skills and unrelated hooks.")
+    .addHelpText("after", attachExamples([
+      "sla host uninstall-hooks codex",
+      "sla host uninstall-hooks codex --repository .",
+    ]))
+    .action(async (...args) => {
+      const hostName = args[0];
+      const repositoryArg = args[1];
+      const options = normalizeInstallOptions(args[2], repositoryArg);
+      const command = args.at(-1);
+      const result = await uninstallHostHooks(hostName, options);
+      return writeResult(command, { ok: true, data: result }, {
+        human: `Removed SLA-managed ${result.host} hooks.`,
+      });
     });
 }
 
