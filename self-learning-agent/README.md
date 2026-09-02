@@ -136,6 +136,29 @@ sla host install claude --repository ~/development/self-learning-agent
 sla host install cursor --repository ~/development/self-learning-agent
 ```
 
+## Repository session profiles
+
+To load one or more existing SLA profiles when working anywhere inside a repository, create a repository-local `.sla` manifest:
+
+```bash
+sla session install --profile research
+sla session install --profile research --profile shared-engineering
+sla session bootstrap --json
+```
+
+The manifest stores ordered profile names only; it never stores profile content, credentials, or provider settings:
+
+```json
+{
+  "schemaVersion": 1,
+  "profiles": ["research", "shared-engineering"]
+}
+```
+
+`session install` validates that every named profile already exists. It writes `.sla` in the current directory and refuses to overwrite one without `--yes` (or an interactive confirmation). If that directory already has a `.gitignore`, it appends `.sla` once; it does not create a new `.gitignore`.
+
+`session bootstrap [directory] --json` walks up from the supplied directory and uses the nearest `.sla` file. It returns the selected profiles and their canonical bootstrap contexts. A repository without `.sla` returns `found: false`; SLA does not silently substitute the global default profile. Commit `.sla` only when its selected profile names are suitable for collaborators.
+
 Common Hermes flows:
 
 ```bash

@@ -1594,6 +1594,118 @@ test("installed codex stop hook falls back when no explicit profile was establis
   assert.match(payload.reason, /Create or update reference docs/);
 });
 
+test("session install writes an ordered manifest and updates an existing gitignore once", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-repo-"));
+  await fs.writeFile(path.join(repositoryPath, ".gitignore"), "node_modules/\r\n", "utf8");
+  run(["profile", "create", "research"], { env: { SLA_HOME: slaHome } });
+
+  const installed = run(
+    ["session", "install", "--profile", "research", "--profile", "default", "--json"],
+    { cwd: repositoryPath, env: { SLA_HOME: slaHome } },
+  );
+  assert.equal(installed.status, 0, installed.stderr);
+  const parsed = JSON.parse(installed.stdout);
+  assert.deepEqual(parsed.data.profiles, ["research", "default"]);
+  assert.equal(parsed.data.manifestPath, path.join(await fs.realpath(repositoryPath), ".sla"));
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(repositoryPath, ".sla"), "utf8")), {
+    schemaVersion: 1,
+    profiles: ["research", "default"],
+  });
+  assert.equal(await fs.readFile(path.join(repositoryPath, ".gitignore"), "utf8"), "node_modules/\r\n.sla\r\n");
+
+  const overwritten = run(["session", "install", "--profile", "research", "--yes"], {
+    cwd: repositoryPath,
+    env: { SLA_HOME: slaHome },
+  });
+  assert.equal(overwritten.status, 0, overwritten.stderr);
+  assert.equal((await fs.readFile(path.join(repositoryPath, ".gitignore"), "utf8")).match(/\.sla/g).length, 1);
+});
+
+test("session install requires existing profiles, explicit overwrite, and does not create gitignore", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-repo-"));
+
+  const missing = run(["session", "install", "--profile", "missing", "--json"], {
+    cwd: repositoryPath,
+    env: { SLA_HOME: slaHome },
+  });
+  assert.equal(missing.status, 1);
+  assert.equal(JSON.parse(missing.stdout).error.code, "PROFILE_NOT_FOUND");
+
+  const installed = run(["session", "install", "--profile", "default"], {
+    cwd: repositoryPath,
+    env: { SLA_HOME: slaHome },
+  });
+  assert.equal(installed.status, 0, installed.stderr);
+  await assertPathMissing(path.join(repositoryPath, ".gitignore"));
+
+  const overwrite = run(["session", "install", "--profile", "default", "--json"], {
+    cwd: repositoryPath,
+    env: { SLA_HOME: slaHome },
+  });
+  assert.equal(overwrite.status, 1);
+  assert.equal(JSON.parse(overwrite.stdout).error.code, "SESSION_MANIFEST_OVERWRITE_REQUIRED");
+
+  const duplicate = run(["session", "install", "--profile", "default", "--profile", "default", "--yes", "--json"], {
+    cwd: repositoryPath,
+    env: { SLA_HOME: slaHome },
+  });
+  assert.equal(duplicate.status, 2);
+  assert.equal(JSON.parse(duplicate.stdout).error.code, "SESSION_PROFILE_DUPLICATE");
+});
+
+test("session bootstrap resolves the nearest manifest without using the global default", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-repo-"));
+  const nestedPath = path.join(repositoryPath, "packages", "api");
+  await fs.mkdir(nestedPath, { recursive: true });
+  run(["profile", "create", "research"], { env: { SLA_HOME: slaHome } });
+  run(["soul", "edit", "research", "--stdin"], {
+    env: { SLA_HOME: slaHome },
+    input: "# SOUL\n\nRepository research context.\n",
+  });
+  await fs.writeFile(path.join(repositoryPath, ".sla"), '{"schemaVersion":1,"profiles":["default"]}\n');
+  await fs.writeFile(path.join(repositoryPath, "packages", ".sla"), '{"schemaVersion":1,"profiles":["research","default"]}\n');
+
+  const result = run(["session", "bootstrap", nestedPath, "--json"], { env: { SLA_HOME: slaHome } });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.data.manifestPath, path.join(await fs.realpath(path.join(repositoryPath, "packages")), ".sla"));
+  assert.equal(parsed.data.repositoryPath, await fs.realpath(path.join(repositoryPath, "packages")));
+  assert.deepEqual(parsed.data.profiles.map((entry) => entry.profile), ["research", "default"]);
+  assert.match(parsed.data.profiles[0].renderedContext, /Repository research context/);
+
+  const unconfiguredPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-unconfigured-"));
+  const unconfigured = run(["session", "bootstrap", unconfiguredPath, "--json"], { env: { SLA_HOME: slaHome } });
+  assert.equal(unconfigured.status, 0);
+  assert.deepEqual(JSON.parse(unconfigured.stdout).data, {
+    found: false,
+    manifestPath: null,
+    repositoryPath: null,
+    profiles: [],
+  });
+
+  const unconfiguredHuman = run(["session", "bootstrap", unconfiguredPath], { env: { SLA_HOME: slaHome } });
+  assert.equal(unconfiguredHuman.status, 0);
+  assert.equal(unconfiguredHuman.stdout.trim(), "No repository .sla manifest found.");
+});
+
+test("session bootstrap reports malformed manifests and missing configured profiles", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-repo-"));
+  await fs.writeFile(path.join(repositoryPath, ".sla"), '{"schemaVersion":1,"profiles":["default","default"]}\n');
+
+  const malformed = run(["session", "bootstrap", repositoryPath, "--json"], { env: { SLA_HOME: slaHome } });
+  assert.equal(malformed.status, 1);
+  assert.equal(JSON.parse(malformed.stdout).error.code, "INVALID_SESSION_MANIFEST");
+
+  await fs.writeFile(path.join(repositoryPath, ".sla"), '{"schemaVersion":1,"profiles":["missing"]}\n');
+  const missing = run(["session", "bootstrap", repositoryPath, "--json"], { env: { SLA_HOME: slaHome } });
+  assert.equal(missing.status, 1);
+  assert.equal(JSON.parse(missing.stdout).error.code, "PROFILE_NOT_FOUND");
+});
+
 test("npm pack dry run includes only publish-safe runtime files", () => {
   const result = runExternal("npm", ["pack", "--json", "--dry-run"]);
 
@@ -1613,6 +1725,7 @@ test("npm pack dry run includes only publish-safe runtime files", () => {
     "src/commands/memory.js",
     "src/commands/profile.js",
     "src/commands/root.js",
+    "src/commands/session.js",
     "src/commands/skill.js",
     "src/commands/soul.js",
     "src/commands/stats.js",
@@ -1629,6 +1742,7 @@ test("npm pack dry run includes only publish-safe runtime files", () => {
     "src/lib/paths.js",
     "src/lib/profile-context.js",
     "src/lib/profiles.js",
+    "src/lib/repository-manifest.js",
     "src/lib/skills.js",
     "src/lib/soul.js",
     "src/lib/stats.js",
