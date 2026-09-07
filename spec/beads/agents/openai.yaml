@@ -1,0 +1,7 @@
+interface:
+  display_name: "spec:beads"
+  short_description: "Safely create and validate Beads issue graphs"
+  default_prompt: "Use $spec-beads to preview, create, and validate this approved Beads issue plan."
+
+policy:
+  allow_implicit_invocation: true
