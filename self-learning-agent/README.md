@@ -196,9 +196,9 @@ sla --hermes-agent host install hermes --hermes-profile research
 - a merged hooks config at `~/.codex/hooks.json` by default, or at `<repository>/.codex/hooks.json` when `--repository` is provided
 - repository-local installs write a portable hook command using global `node` and a relative `.codex/hooks/...` path so the config can be committed across machines
 - when `--gitignore` is provided for a repository-local install and the repo already has a `.gitignore`, append `.codex/` if it is not already ignored
-- a stop hook that prompts Codex for one final persistence pass before ending a turn
+- a concise stop hook that asks the resumed root agent to dispatch one persistence-review child before ending a turn
 
-The Stop hook now asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. The first release installs that agent under `~/.codex/agents/` (or `<repository>/.codex/agents/`) and validates the dispatch handoff without writing SLA data; durable persistence policy is added separately.
+The Stop hook asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. That child receives the session snapshot and active repository-profile scope, uses only `sla` CLI commands for warranted durable memory, skill, and reference updates, and returns an aggregate result only. It skips temporary, duplicate, ambiguous, or unsafe material; it never chooses a default profile by guesswork or exposes transcript contents or credentials in its outcome.
 
 ### Manual Codex persistence-dispatch verification
 

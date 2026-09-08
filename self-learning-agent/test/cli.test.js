@@ -880,7 +880,23 @@ test("installs codex host wrappers and tracks installation metadata", async () =
     "utf8",
   );
   assert.match(persistenceReviewAgent, /^name = "sla-persistence-review"$/m);
-  assert.match(persistenceReviewAgent, /Do not write SLA memories, skills, references, files, or configuration/);
+  assert.match(persistenceReviewAgent, /Use only active profiles explicitly supplied in the parent session context/);
+  assert.match(persistenceReviewAgent, /Never guess a profile or fall back to the SLA default/);
+  assert.match(persistenceReviewAgent, /sla profile context <profile> --json/);
+  assert.match(persistenceReviewAgent, /Use only `sla` CLI commands for SLA-managed reads and writes/);
+  assert.match(persistenceReviewAgent, /sla memory add <profile> --target memory\|user --entry <text>/);
+  assert.match(persistenceReviewAgent, /sla skill create <skill> <profile>/);
+  assert.match(persistenceReviewAgent, /sla skill edit <skill> <profile> --stdin/);
+  assert.match(persistenceReviewAgent, /sla skill create-reference <skill> <profile>/);
+  assert.match(persistenceReviewAgent, /sla profile classify <profile> --stdin/);
+  assert.match(persistenceReviewAgent, /If several active profiles exist, route each candidate only to the profile it is specific to/);
+  assert.match(persistenceReviewAgent, /If the target remains ambiguous, skip that candidate/);
+  assert.match(persistenceReviewAgent, /Skip exact or materially duplicate content/);
+  assert.match(persistenceReviewAgent, /temporary next steps, raw transcript material, and secrets/);
+  assert.match(persistenceReviewAgent, /If a CLI write fails, do not retry blindly/);
+  assert.match(persistenceReviewAgent, /memory=<count>; skills=<count>; references=<count>/);
+  assert.match(persistenceReviewAgent, /no-change/);
+  assert.match(persistenceReviewAgent, /failed: <safe reason>/);
 
   const hooksConfig = JSON.parse(await fs.readFile(path.join(codexHome, "hooks.json"), "utf8"));
   assert.equal(Array.isArray(hooksConfig.hooks.SessionStart), true);

@@ -55,7 +55,7 @@ async function main() {
     ], { env, timeout: 300_000 });
 
     const lastMessage = await fs.readFile(lastMessagePath, "utf8");
-    if (!/SLA persistence review ready for:\s*default\.?/i.test(lastMessage)) {
+    if (!/SLA persistence review:\s*profiles=default;\s*no-change\./i.test(lastMessage)) {
       throw new Error(`Codex did not surface the expected persistence-review result. Last message:\n${lastMessage}`);
     }
 
