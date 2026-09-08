@@ -12,6 +12,7 @@ const {
   getCodexHooksPath,
   getCodexSkillPath,
   getCodexSkillsPath,
+  getPersistenceActivityPath,
   getClaudeHookScriptPath,
   getClaudeHooksPath,
   getClaudeSettingsPath,
@@ -34,7 +35,6 @@ const OPENAI_STYLE_STOP_HOOK_FILE = "sla-stop-hook.js";
 const CODEX_SESSION_START_HOOK_FILE = "sla-session-start-hook.js";
 const CODEX_PERSISTENCE_REVIEW_AGENT = "sla-persistence-review";
 const CODEX_SESSION_START_MATCHER = "startup|resume|clear|compact";
-const CODEX_STOP_HOOK_STATUS_MESSAGE = "Dispatching SLA persistence review";
 const CURSOR_STOP_HOOK_EVENT = "stop";
 
 function getSupportedHosts() {
@@ -83,6 +83,7 @@ async function installHost(hostName, options = {}) {
     stopHookPath: installation.stopHookPath ?? null,
     sessionStartHookPath: installation.sessionStartHookPath ?? null,
     persistenceReviewAgentPath: installation.persistenceReviewAgentPath ?? null,
+    persistenceActivityPath: getPersistenceActivityPath(),
     hookScope: installation.hookScope ?? null,
     repositoryPath: installation.repositoryPath ?? null,
     profile: installation.profile ?? null,
@@ -232,6 +233,7 @@ function createCodexAdapter() {
         stopHookPath: hookTarget.stopHookPath,
         sessionStartHookPath: hookTarget.sessionStartHookPath,
         persistenceReviewAgentPath: hookTarget.persistenceReviewAgentPath,
+        persistenceActivityPath: getPersistenceActivityPath(),
         hookScope: hookTarget.scope,
         repositoryPath: hookTarget.repositoryPath,
         installedSkills: HOST_SKILL_COMMANDS,
@@ -246,6 +248,7 @@ function createCodexAdapter() {
           stopHookPath: hookTarget.stopHookPath,
           sessionStartHookPath: hookTarget.sessionStartHookPath,
           persistenceReviewAgentPath: hookTarget.persistenceReviewAgentPath,
+          persistenceActivityPath: getPersistenceActivityPath(),
           hookScope: hookTarget.scope,
           repositoryPath: hookTarget.repositoryPath,
           installedAt: new Date().toISOString(),
@@ -271,6 +274,7 @@ function createCodexAdapter() {
         persistenceReviewAgentPath: installed
           ? hookTarget.persistenceReviewAgentPath
           : hostConfig.persistenceReviewAgentPath || null,
+        persistenceActivityPath: getPersistenceActivityPath(),
         hookScope: installed ? hookTarget.scope : hostConfig.hookScope || null,
         repositoryPath: installed ? hookTarget.repositoryPath : hostConfig.repositoryPath || null,
         installedSkills,
@@ -984,7 +988,7 @@ function renderCodexStopHookScript() {
     "",
     "const response = {",
     '  decision: "block",',
-    '  reason: "SLA persistence handoff: spawn exactly one `sla-persistence-review` subagent now. Do not perform the review yourself. Wait for its concise result, report that outcome verbatim, then finish. If it cannot safely resolve an active SLA profile or cannot dispatch, surface that outcome without guessing a profile or writing SLA data.",',
+    '  reason: "SLA persistence handoff: spawn exactly one `sla-persistence-review` subagent now. Do not announce the dispatch, narrate progress, or send a separate handoff message. Do not perform the review yourself. After the child returns, respond with exactly its one-line result and nothing else. If dispatch is unavailable, respond only: `SLA persistence review: profiles=none; failed: dispatch-unavailable.`",',
     "};",
     "",
     "process.stdout.write(`${JSON.stringify(response)}\\n`);",
@@ -999,12 +1003,12 @@ function renderCodexPersistenceReviewAgent() {
     'developer_instructions = """',
     "You are the SLA persistence-review subagent.",
     "",
-    "Review only the forked session snapshot for durable SLA learning. Do not ask the parent to do the review and do not include the snapshot, detailed reasoning, credentials, tokens, or other secrets in your result.",
+    "Review only the forked session snapshot for durable SLA learning. Do not ask the parent to do the review and do not include the snapshot, detailed reasoning, credentials, tokens, or other secrets in your result. Do not announce that you are starting, dispatching, reviewing, or finishing; make any needed tool calls silently and return only the final completion line.",
     "",
     "## Profile scope and safety",
     "",
     "- Use only active profiles explicitly supplied in the parent session context, normally under `# SLA Repository Profiles:`. Never guess a profile or fall back to the SLA default.",
-    "- If no active profile is safely resolved, make no write and return `SLA persistence review: skipped; no safely resolved SLA profile.`",
+    "- If no active profile is safely resolved, make no write, record the outcome with `sla persistence record --outcome skipped`, and return `SLA persistence review: profiles=none; skipped: profile-unresolved.`",
     "- If several active profiles exist, route each candidate only to the profile it is specific to. Do not collapse profile-specific learning into another active profile. If the target remains ambiguous, skip that candidate.",
     "- Before a material update, inspect the selected profile through `sla profile context <profile> --json`; inspect an existing relevant skill with `sla skill view <skill> <profile>` when necessary.",
     "- Use only `sla` CLI commands for SLA-managed reads and writes. Never directly edit `~/.sla`, profile files, configuration, or generated skill files.",
@@ -1021,13 +1025,15 @@ function renderCodexPersistenceReviewAgent() {
     "",
     "- Compare a candidate with the selected profile's current memories and relevant skill before writing. Skip exact or materially duplicate content. Update an existing skill only for a material, durable improvement.",
     "- If a CLI write fails, do not retry blindly or repeat already-completed writes. Stop processing that candidate and surface a safe failure summary.",
+    "- Before returning a final result, record it with `sla persistence record`. Use one `--profile <profile>` for every selected profile; use only the count flags, outcome, and a supported `--failure-reason` code. If the session gives you a stable dispatch identifier, pass it as `--event-id` so a retry records once. Never place transcript text, secrets, paths, or an arbitrary error message in the activity record.",
+    "- If the activity record command itself fails, return `SLA persistence review: profiles=<comma-separated profiles>; failed: activity-record-failed.` without retrying blindly. Do not claim a fully successful audited review.",
     "",
     "## Completion contract",
     "",
     "Return exactly one concise line and no detailed reasoning:",
-    "- Success with changes: `SLA persistence review: profiles=<comma-separated profiles>; memory=<count>; skills=<count>; references=<count>.`",
-    "- No changes: `SLA persistence review: profiles=<comma-separated profiles>; no-change.`",
-    "- Safe failure: `SLA persistence review: profiles=<comma-separated profiles>; failed: <safe reason>.`",
+    "- Success with changes: first record `--outcome changed --memory <count> --skills <count> --references <count>`, then return `SLA persistence review: profiles=<comma-separated profiles>; memory=<count>; skills=<count>; references=<count>.`",
+    "- No changes: first record `--outcome no-change`, then return `SLA persistence review: profiles=<comma-separated profiles>; no-change.`",
+    "- Safe failure: first record `--outcome failed --failure-reason write-failed|dispatch-unavailable|activity-record-failed`, then return `SLA persistence review: profiles=<comma-separated profiles>; failed: <safe reason>.`",
     '\"\"\"',
     "",
   ].join("\n");
@@ -1416,7 +1422,6 @@ function mergeCodexSessionStartHook(config, hookTarget) {
     type: "command",
     command: stopCommand,
     timeout: 30,
-    statusMessage: CODEX_STOP_HOOK_STATUS_MESSAGE,
   };
   if (existingStopGroup === -1) {
     stopEntries.push({ hooks: [managedStopHook] });

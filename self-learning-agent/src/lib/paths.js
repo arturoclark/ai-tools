@@ -58,6 +58,10 @@ function getConfigPath() {
   return path.join(getSlaHome(), "config.json");
 }
 
+function getPersistenceActivityPath() {
+  return path.join(getSlaHome(), "activity", "persistence.jsonl");
+}
+
 function getProfilesRoot() {
   return isHermesAgent() ? path.join(getSlaHome(), "profiles") : getSlaHome();
 }
@@ -212,6 +216,7 @@ module.exports = {
   getCursorSkillPath,
   getCursorSkillsPath,
   getConfigPath,
+  getPersistenceActivityPath,
   getMemoryStorePath,
   getMemoriesPath,
   getProfilePath,

@@ -122,6 +122,7 @@ sla memory add research --target memory --entry "The API runs in us-east-1"
 sla skill create deploy research
 sla skill create-reference deploy research --path release-flow.md --title "Release Flow"
 sla stats profile research
+sla persistence activity
 sla host install codex
 sla host install claude
 sla host install cursor
@@ -161,7 +162,7 @@ The manifest stores ordered profile names only; it never stores profile content,
 
 For Codex, install the host integration once with `sla host install codex`. Its managed `SessionStart` hook loads the repository manifest during startup, resume, clear, and compaction without creating a user-visible continuation. The injected context includes the configured profiles and a compact skill index; view a relevant skill explicitly with `sla skill view <skill> <profile>`. `/use-profile` remains available when a user intentionally overrides or adds a profile.
 
-Malformed manifests and unavailable configured profiles silently produce no SessionStart context so hook diagnostics do not reveal local paths or profile details. The existing SLA `Stop` hook remains installed for comparison; remove both managed Codex hooks with `sla host uninstall-hooks codex`.
+Malformed manifests and unavailable configured profiles silently produce no SessionStart context so hook diagnostics do not reveal local paths or profile details. Remove SLA-managed Codex hooks and the custom persistence-review agent with `sla host uninstall-hooks codex`; unrelated hooks and skills are preserved.
 
 ### Manual Codex SessionStart verification
 
@@ -198,7 +199,9 @@ sla --hermes-agent host install hermes --hermes-profile research
 - when `--gitignore` is provided for a repository-local install and the repo already has a `.gitignore`, append `.codex/` if it is not already ignored
 - a concise stop hook that asks the resumed root agent to dispatch one persistence-review child before ending a turn
 
-The Stop hook asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. That child receives the session snapshot and active repository-profile scope, uses only `sla` CLI commands for warranted durable memory, skill, and reference updates, and returns an aggregate result only. It skips temporary, duplicate, ambiguous, or unsafe material; it never chooses a default profile by guesswork or exposes transcript contents or credentials in its outcome.
+The Stop hook asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. The root agent does not announce that dispatch or emit a progress update: after the child finishes, it returns only the child's concise result line. That child receives the session snapshot and active repository-profile scope, uses only `sla` CLI commands for warranted durable memory, skill, and reference updates, and returns an aggregate result only. It skips temporary, duplicate, ambiguous, or unsafe material; it never chooses a default profile by guesswork or exposes transcript contents or credentials in its outcome.
+
+Each child result is recorded as a concise, redacted local activity record. Inspect recent outcomes with `sla persistence activity` (or filter with `sla persistence activity <profile>`). Records contain only profile names, outcome, mutation counts, an optional stable dispatch ID, and a fixed safe failure code—never transcript content, file paths, credentials, or arbitrary error text. A supplied dispatch ID is idempotent, so retrying the same identified delivery does not create a second activity record. The review child does not blindly retry failed writes; it reports a safe failure instead.
 
 ### Manual Codex persistence-dispatch verification
 

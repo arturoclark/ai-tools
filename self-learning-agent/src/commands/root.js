@@ -8,6 +8,7 @@ const { registerSkillCommands } = require("./skill");
 const { registerSoulCommands } = require("./soul");
 const { registerStatsCommands } = require("./stats");
 const { registerSessionCommands } = require("./session");
+const { registerPersistenceCommands } = require("./persistence");
 const { attachExamples } = require("../lib/examples");
 const { ensureSchemaReady } = require("../lib/bootstrap");
 const { loadConfig } = require("../lib/config");
@@ -64,6 +65,7 @@ function buildRootCommand() {
   registerSkillCommands(program);
   registerStatsCommands(program);
   registerSessionCommands(program);
+  registerPersistenceCommands(program);
   registerHostCommands(program);
   registerHelpCommand(program);
 

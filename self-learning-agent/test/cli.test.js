@@ -825,6 +825,64 @@ test("reports per-profile stats with memory and skill activity", async () => {
   assert.ok(parsed.data.soul.modifiedAt);
 });
 
+test("records redacted persistence activity and de-duplicates a stable dispatch ID", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const env = { SLA_HOME: slaHome };
+
+  const recorded = run([
+    "persistence", "record",
+    "--profile", "default",
+    "--outcome", "changed",
+    "--memory", "1",
+    "--event-id", "codex-dispatch-42",
+    "--json",
+  ], { env });
+  assert.equal(recorded.status, 0, recorded.stderr);
+  const first = JSON.parse(recorded.stdout);
+  assert.equal(first.data.recorded, true);
+  assert.equal(first.data.record.outcome, "changed");
+  assert.deepEqual(first.data.record.profiles, ["default"]);
+  assert.deepEqual(first.data.record.counts, { memory: 1, skills: 0, references: 0 });
+  assert.equal(first.data.record.failureReason, null);
+
+  const duplicate = run([
+    "persistence", "record",
+    "--profile", "default",
+    "--outcome", "changed",
+    "--memory", "1",
+    "--event-id", "codex-dispatch-42",
+    "--json",
+  ], { env });
+  assert.equal(duplicate.status, 0, duplicate.stderr);
+  assert.equal(JSON.parse(duplicate.stdout).data.recorded, false);
+
+  const failed = run([
+    "persistence", "record",
+    "--outcome", "failed",
+    "--failure-reason", "dispatch-unavailable",
+    "--json",
+  ], { env });
+  assert.equal(failed.status, 0, failed.stderr);
+
+  const activity = run(["persistence", "activity", "--json"], { env });
+  assert.equal(activity.status, 0, activity.stderr);
+  const records = JSON.parse(activity.stdout).data.records;
+  assert.equal(records.length, 2);
+  assert.equal(records[0].failureReason, "dispatch-unavailable");
+
+  const activityFile = await fs.readFile(path.join(slaHome, "activity", "persistence.jsonl"), "utf8");
+  assert.doesNotMatch(activityFile, /transcript|credential|secret|\/Users\//i);
+
+  const unsafeReason = run([
+    "persistence", "record",
+    "--outcome", "failed",
+    "--failure-reason", "token=not-safe",
+    "--json",
+  ], { env });
+  assert.equal(unsafeReason.status, 2);
+  assert.equal(JSON.parse(unsafeReason.stdout).error.code, "INVALID_PERSISTENCE_FAILURE_REASON");
+});
+
 test("installs codex host wrappers and tracks installation metadata", async () => {
   const slaHome = await createInstalledSlaHome();
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
@@ -844,6 +902,7 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.equal(parsed.data.stopHookPath, path.join(codexHome, "hooks", "sla-stop-hook.js"));
   assert.equal(parsed.data.sessionStartHookPath, path.join(codexHome, "hooks", "sla-session-start-hook.js"));
   assert.equal(parsed.data.persistenceReviewAgentPath, path.join(codexHome, "agents", "sla-persistence-review.toml"));
+  assert.equal(parsed.data.persistenceActivityPath, path.join(slaHome, "activity", "persistence.jsonl"));
   assert.deepEqual(parsed.data.installedSkills, ["/use-profile", "/create-profile", "/update-profile"]);
   assert.equal(parsed.data.createdFiles.length, 10);
   assert.deepEqual(parsed.data.updatedFiles, []);
@@ -894,6 +953,9 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.match(persistenceReviewAgent, /Skip exact or materially duplicate content/);
   assert.match(persistenceReviewAgent, /temporary next steps, raw transcript material, and secrets/);
   assert.match(persistenceReviewAgent, /If a CLI write fails, do not retry blindly/);
+  assert.match(persistenceReviewAgent, /Do not announce that you are starting, dispatching, reviewing, or finishing/);
+  assert.match(persistenceReviewAgent, /sla persistence record/);
+  assert.match(persistenceReviewAgent, /Never place transcript text, secrets, paths, or an arbitrary error message in the activity record/);
   assert.match(persistenceReviewAgent, /memory=<count>; skills=<count>; references=<count>/);
   assert.match(persistenceReviewAgent, /no-change/);
   assert.match(persistenceReviewAgent, /failed: <safe reason>/);
@@ -915,6 +977,7 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.equal(config.hosts.codex.stopHookPath, path.join(codexHome, "hooks", "sla-stop-hook.js"));
   assert.equal(config.hosts.codex.sessionStartHookPath, path.join(codexHome, "hooks", "sla-session-start-hook.js"));
   assert.equal(config.hosts.codex.persistenceReviewAgentPath, path.join(codexHome, "agents", "sla-persistence-review.toml"));
+  assert.equal(config.hosts.codex.persistenceActivityPath, path.join(slaHome, "activity", "persistence.jsonl"));
   assert.equal(config.hosts.codex.hookScope, "global");
   assert.equal(config.hosts.codex.repositoryPath, null);
   assert.deepEqual(config.hosts.codex.installedSkills, [
@@ -968,6 +1031,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
     stopHookPath: path.join(codexHome, "hooks", "sla-stop-hook.js"),
     sessionStartHookPath: path.join(codexHome, "hooks", "sla-session-start-hook.js"),
     persistenceReviewAgentPath: path.join(codexHome, "agents", "sla-persistence-review.toml"),
+    persistenceActivityPath: path.join(slaHome, "activity", "persistence.jsonl"),
     hookScope: "global",
     repositoryPath: null,
     installedSkills: ["/use-profile", "/create-profile", "/update-profile"],
@@ -1660,9 +1724,13 @@ test("codex Stop hook dispatches one concise persistence-review continuation", a
   assert.equal(payload.decision, "block");
   assert.match(payload.reason, /spawn exactly one `sla-persistence-review` subagent now/);
   assert.match(payload.reason, /Do not perform the review yourself/);
-  assert.match(payload.reason, /report that outcome verbatim/);
-  assert.match(payload.reason, /without guessing a profile or writing SLA data/);
+  assert.match(payload.reason, /Do not announce the dispatch, narrate progress, or send a separate handoff message/);
+  assert.match(payload.reason, /respond with exactly its one-line result and nothing else/);
+  assert.match(payload.reason, /profiles=none; failed: dispatch-unavailable/);
   assert.doesNotMatch(payload.reason, /mandatory persistence review|sla memory add|references\/\*\.md/);
+
+  const hooksConfig = JSON.parse(await fs.readFile(path.join(codexHome, "hooks.json"), "utf8"));
+  assert.equal(hooksConfig.hooks.Stop[0].hooks[0].statusMessage, undefined);
 
   const guarded = runCommand(process.execPath, [hookPath], {
     env,
@@ -1674,6 +1742,25 @@ test("codex Stop hook dispatches one concise persistence-review continuation", a
   const malformed = runCommand(process.execPath, [hookPath], { env, input: "not-json" });
   assert.equal(malformed.status, 0, malformed.stderr);
   assert.equal(malformed.stdout, "");
+});
+
+test("documents and exposes persistence activity in a disposable Codex installation", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+  const env = { SLA_HOME: slaHome, CODEX_HOME: codexHome };
+
+  const install = run(["host", "install", "codex", "--json"], { env });
+  assert.equal(install.status, 0, install.stderr);
+  assert.equal(JSON.parse(install.stdout).data.persistenceActivityPath, path.join(slaHome, "activity", "persistence.jsonl"));
+
+  const help = run(["help", "persistence", "activity"], { env });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /Show concise, redacted persistence-review outcomes/);
+
+  const readme = await fs.readFile(path.join(repoRoot, "README.md"), "utf8");
+  assert.match(readme, /sla persistence activity/);
+  assert.match(readme, /does not announce that dispatch or emit a progress update/);
+  assert.match(readme, /unrelated hooks and skills are preserved/);
 });
 
 test("codex SessionStart hook injects configured profiles and silently no-ops otherwise", async () => {
@@ -1861,6 +1948,7 @@ test("npm pack dry run includes only publish-safe runtime files", () => {
     "src/commands/host.js",
     "src/commands/install.js",
     "src/commands/memory.js",
+    "src/commands/persistence.js",
     "src/commands/profile.js",
     "src/commands/root.js",
     "src/commands/session.js",
@@ -1878,6 +1966,7 @@ test("npm pack dry run includes only publish-safe runtime files", () => {
     "src/lib/not-implemented.js",
     "src/lib/output.js",
     "src/lib/paths.js",
+    "src/lib/persistence.js",
     "src/lib/profile-context.js",
     "src/lib/profiles.js",
     "src/lib/repository-manifest.js",
