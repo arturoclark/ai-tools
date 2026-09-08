@@ -23,6 +23,19 @@ Use this model to draft a specification before selecting tracker fields. Omit se
 
 ## Research findings and alternatives
 
+## Tracker identity and delivery graph
+
+```md
+Repository name: <UPPERCASE-REPOSITORY-NAME>
+Spec key: <stable-lowercase-spec-key>
+
+| Key | Type | Title | Parent | Blocked by |
+| --- | --- | --- | --- | --- |
+| EPIC | epic | <outcome> | — | — |
+| S01 | feature | <first independently deliverable story> | EPIC | — |
+| S02 | feature | <next independently deliverable story> | EPIC | S01 |
+```
+
 ## Proposed delivery slices and dependency order
 ```
 
@@ -49,8 +62,8 @@ As a <user or stakeholder>, I want <capability> so that <value>.
 
 ## Dependencies and risks
 
-## Technical notes
-Only confirmed implementation constraints or links to independently tracked technical tasks.
+## Suggested technical implementation
+Describe the confirmed approach, impacted systems or contracts, migration or operational considerations, and required automated coverage. Include illustrative code, pseudocode, or patch fragments when they clarify the suggested approach, but label them as non-final guidance rather than a binding implementation contract. This section belongs in the product story and must contain the implementation work needed to deliver its acceptance criteria. Link to a technical task only when the human explicitly chose standalone tracking or the work is a separate cross-cutting deliverable.
 
 ## Test expectations
 <Automated and/or manual coverage, once the human confirms its location.>
@@ -58,7 +71,7 @@ Only confirmed implementation constraints or links to independently tracked tech
 
 ## Technical task
 
-Create only when it has a distinct deliverable or a real dependency relationship.
+Create only when the human explicitly wants standalone tracking or the work is a separate cross-cutting deliverable that cannot be owned by one product story. Do not use a technical task to restate ordinary implementation steps from its parent story.
 
 ```md
 Title: <implementation outcome>

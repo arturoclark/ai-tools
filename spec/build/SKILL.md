@@ -94,12 +94,30 @@ For each product story, include product-oriented content in the story itself:
 - concrete acceptance criteria
 - happy paths and unhappy, validation, boundary, or recovery paths
 - dependencies, risks, and observable completion result
+- a self-contained **Suggested technical implementation** section covering the confirmed approach, affected systems or contracts, operational or migration considerations, and required automated coverage. It may include illustrative code, pseudocode, or patch fragments when they clarify the proposed approach; examples are guidance, not a final implementation contract.
 
-Use linked technical tasks only when the technical work is independently assignable, reviewable, sequenced, or blocks other work. Put small implementation notes in the product story rather than creating work for its own sake. Technical tasks must identify the confirmed approach, impacted systems or contracts, migration/operational concerns when applicable, and required automated coverage.
+Keep confirmed technical execution inside the product story by default. The story's **Suggested technical implementation** section must be sufficient for an implementer and reviewer to understand the required work; do not split ordinary implementation steps into separate tracker tasks merely because they can be sequenced or reviewed.
+
+Create a linked technical task only when the human explicitly requests standalone tracking, or when the work is a genuinely separate cross-cutting deliverable that cannot be owned by one product story. Record why it is separate, its delivery purpose, and its dependencies. Technical tasks must identify the confirmed approach, impacted systems or contracts, migration/operational concerns when applicable, and required automated coverage.
 
 Create a linked QA task only if the human opts in. Ask where the tests should live if that cannot be inferred from the repository or conversation. When testing belongs in another repository or tool, require the human to identify the target and linking method; do not infer either.
 
 Order work by real blocking relationships, not merely preferred reading order. Foundation or decision work that blocks a story comes first; a story blocks its QA task; unrelated work stays parallel. Explain the dependency graph in plain language before creating it.
+
+Every issue plan must declare a confirmed tracker identity and delivery graph before its issue-plan gate. The first title bracket is the confirmed repository name (for example, `ZIIPCO` or `AI-TOOLS`), rendered uppercase; it is not the Beads database target or a directory-derived identifier. Do not derive either name or key from a directory name without human confirmation:
+
+```md
+Repository name: <UPPERCASE-REPOSITORY-NAME>
+Spec key: <stable-lowercase-spec-key>
+
+| Key | Type | Title | Parent | Blocked by |
+| --- | --- | --- | --- | --- |
+| EPIC | epic | <outcome> | — | — |
+| S01 | feature | <first independently deliverable story> | EPIC | — |
+| S02 | feature | <next independently deliverable story> | EPIC | S01 |
+```
+
+`Key` is a stable, human-readable delivery key: use `EPIC` for the epic, `S01`, `S02`, and so on for product stories, and an unambiguous approved key such as `T01`, `QA01`, or `BUG01` for separately tracked work. The table must list every approved issue, its parent, and only its real blockers. It is the canonical source for the tracker adapter's titles, hierarchy, epic delivery sequence, and blocking links.
 
 ## Tracker selection
 
@@ -109,6 +127,6 @@ Keep the tracker adapter separate from the product specification: the same appro
 
 ## Handoff
 
-Before creation, provide a concise plan containing the approval status, tracker target, ordered issues, dependencies, open questions, and QA decision. After creation, report the created issue IDs, parent/child links, blocking links, and anything intentionally not created.
+Before creation, provide a concise plan containing the approval status, confirmed repository name and spec key, tracker target, ordered issues, dependencies, open questions, and QA decision. After creation, report the created issue IDs, parent/child links, blocking links, and anything intentionally not created.
 
 Never claim that an issue graph, test plan, or implementation is complete without verifying the relevant result.

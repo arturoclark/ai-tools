@@ -16,6 +16,7 @@ This adapter is based on the locally verified `bd` 1.2.2 CLI. Beads evolves, so 
 3. Detect likely duplicate or overlapping issues before proposing creation. Report candidates to the human; do not automatically merge, close, or relate them.
 4. Do not run `bd init`, `bd setup`, `bd hooks`, `bd migrate`, sync, or update commands unless the human explicitly asks. Those operations can change repository or tracker configuration.
 5. Preserve the approved product-plan content. Tracker fields are an encoding of the plan, not permission to alter it.
+6. Confirm the issue-plan's repository name and spec key. The repository name is the uppercase first bracket in the title, not the filesystem location or Beads database target. Do not invent either from the filesystem or target database.
 
 ## Parallel review, single-writer creation
 
@@ -33,19 +34,60 @@ Beads supports `epic`, `feature`, `task`, `bug`, `chore`, and `decision` issue t
 | --- | --- | --- |
 | Multi-outcome delivery container | `epic` | Top-level, unless an approved parent exists |
 | Product story | `feature` | Child of its epic when one exists |
-| Independently sequenced technical work | `task` | Child of the enabled feature or epic |
+| Technical implementation for a product story | Included in its `feature` | Do not create a separate issue by default |
+| Explicitly approved standalone or cross-cutting technical deliverable | `task` | Child of the enabled feature or epic |
 | QA work | `task` | Child of the feature it verifies; use a human-approved QA label if labels are wanted |
 | Confirmed defect | `bug` | Parent and dependencies based on the approved graph |
 | Decision requiring durable tracking | `decision` | Link to affected work only after approval |
 
-Place the product story description in `--description`, acceptance criteria in `--acceptance`, and confirmed technical design in `--design`. Use `--parent` to create hierarchy. A parent relation does not replace a blocking dependency.
+Make every feature self-contained in `--description`: include the product outcome, scope and non-goals, **Suggested technical implementation**, migration or operational considerations, and test expectations. The suggested-implementation section may include illustrative code, pseudocode, or patch fragments when useful; make clear that these examples are not the final implementation contract. Place acceptance criteria in `--acceptance`. `--design` may hold supplementary design detail, but must not be the only place required technical work appears because tracker views may not show it prominently. Use `--parent` to create hierarchy. A parent relation does not replace a blocking dependency.
+
+Before the preview, reconcile each approved technical item: embed ordinary implementation work in its parent feature description, or create a `task` only when the approved plan explicitly calls for standalone tracking or identifies a separate cross-cutting deliverable. Do not silently turn embedded work into separate tasks or hide required work only in `--design`.
+
+## Identity, titles, and IDs
+
+The approved issue-plan table is required. Its `Repository name`, `Spec key`, and per-item `Key` determine each Beads title exactly. The first bracket is the uppercase repository name:
+
+```text
+[<REPOSITORY-NAME>][<spec-key>][<KEY>] <approved issue title>
+```
+
+Examples:
+
+```text
+[AI-TOOLS][sla-persistence][EPIC] Persist Codex SLA learning
+[AI-TOOLS][sla-persistence][S01] Dispatch SLA persistence review
+```
+
+The bracketed identity is title text, not a replacement for Beads' type, parent, labels, or dependency fields. Create the first example with `--type epic`; create the second with `--type feature --parent <epic-id>`. Use the approved `Key` verbatim, including `EPIC`, `S01`, `S02`, `T01`, `QA01`, or `BUG01`.
+
+Create every issue with an explicit ID in the form `DEV-0000`, where the numeric suffix is four digits. Before each preview and each creation, inspect the selected target with `bd list --json`; select one greater than the greatest existing ID that exactly matches `DEV-<four digits>`. Start at `DEV-0000` only when no such ID exists. Do not derive the next number from dotted child IDs, non-numeric IDs, timestamps, display order, or a different repository/database. Create serially so two planned issues cannot receive the same ID. If the selected target rejects the `DEV-` prefix or the next ID is already occupied, stop and report the mismatch rather than using `--force` or falling back to an automatically generated ID.
+
+Pass the computed ID with `bd create --id <DEV-####>`. After creation, verify that the returned ID exactly matches the planned ID. This convention applies to epics and children alike; `--parent` expresses hierarchy and must not change the child ID format.
+
+## Epic delivery sequence
+
+Every epic description must include these sections, populated from the approved issue-plan table before previewing creation:
+
+```md
+## Delivery sequence
+
+1. S01 — <first story title>
+2. S02 — <second story title>
+
+## Blocking relationships
+
+- S02 is blocked by S01.
+```
+
+List every child issue in its real delivery sequence, including approved standalone tasks or QA work when applicable. State only actual blockers in **Blocking relationships**; write `- None.` when there are no blocking relationships. Use the stable plan keys rather than future Beads IDs, which do not exist while the epic description is authored. The epic narrative does not replace the actual `bd dep add` links.
 
 ## Preview, create, and wire
 
 Always perform these actions in sequence:
 
-1. Render the proposed graph in conversation: exact titles, types, parents, dependencies, labels, and QA links.
-2. Preview each planned creation with `bd create ... --dry-run`. For a larger graph, use Beads' approved batch/graph input only after validating its current CLI help and showing the generated input to the human.
+1. Render the proposed graph in conversation: repository name, spec key, plan key, exact `DEV-####` ID, exact title, type, parent, dependencies, labels, and QA links.
+2. Preview each planned creation with its explicit `--id DEV-####` and `bd create ... --dry-run`. For a larger graph, use Beads' approved batch/graph input only after validating its current CLI help and showing the generated input to the human.
 3. Ask for the creation-gate approval, naming the exact target.
 4. Save generated multi-line issue bodies, dry-run output, and the creation report in the active `~/.spec/<spec-slug>/tracker/` workspace. Do not overwrite an approved artifact.
 5. Create parent issues before children and capture each returned ID. Use `--json` or `--silent` when reliable ID capture is needed.
@@ -68,7 +110,7 @@ QA is optional. If the human wants it, create a linked child task in the same Be
 Return a creation report with:
 
 - target repository/database and Beads version
-- created IDs, titles, and types
+- created IDs, titles, types, and confirmation that every ID matches `DEV-####`
 - hierarchy and blocking links
 - Beads cycle-check and viewer validation outcome
 - QA links and test location, if applicable
