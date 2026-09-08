@@ -198,6 +198,18 @@ sla --hermes-agent host install hermes --hermes-profile research
 - when `--gitignore` is provided for a repository-local install and the repo already has a `.gitignore`, append `.codex/` if it is not already ignored
 - a stop hook that prompts Codex for one final persistence pass before ending a turn
 
+The Stop hook now asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. The first release installs that agent under `~/.codex/agents/` (or `<repository>/.codex/agents/`) and validates the dispatch handoff without writing SLA data; durable persistence policy is added separately.
+
+### Manual Codex persistence-dispatch verification
+
+This opt-in check invokes Codex and may consume account usage. It uses temporary SLA, Codex, and repository directories only. Its hook and custom-agent installation is user-level within the temporary Codex home, so the check does not depend on trusting a newly created repository-local `.codex` directory. It copies file-backed local Codex authentication into that temporary home for the duration of the check; the temporary home is removed on completion, and an existing `CODEX_ACCESS_TOKEN` or `OPENAI_API_KEY` is used directly instead.
+
+```bash
+SLA_PERSISTENCE_DISPATCH_CHECK=1 node scripts/verify-codex-persistence-dispatch.js
+```
+
+Set `SLA_PERSISTENCE_DISPATCH_KEEP_TEMP=1` to retain those disposable directories for diagnostics; delete the printed directory when finished because it may contain a temporary copy of file-backed Codex authentication.
+
 `sla host install cursor` installs:
 
 - Cursor skills under `~/.cursor/skills/`

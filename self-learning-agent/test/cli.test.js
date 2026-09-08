@@ -843,8 +843,9 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.equal(parsed.data.hooksConfigPath, path.join(codexHome, "hooks.json"));
   assert.equal(parsed.data.stopHookPath, path.join(codexHome, "hooks", "sla-stop-hook.js"));
   assert.equal(parsed.data.sessionStartHookPath, path.join(codexHome, "hooks", "sla-session-start-hook.js"));
+  assert.equal(parsed.data.persistenceReviewAgentPath, path.join(codexHome, "agents", "sla-persistence-review.toml"));
   assert.deepEqual(parsed.data.installedSkills, ["/use-profile", "/create-profile", "/update-profile"]);
-  assert.equal(parsed.data.createdFiles.length, 9);
+  assert.equal(parsed.data.createdFiles.length, 10);
   assert.deepEqual(parsed.data.updatedFiles, []);
   assert.deepEqual(parsed.data.unchangedFiles, []);
   assert.ok(parsed.data.installedAt);
@@ -874,6 +875,13 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.match(sessionStartScript, /hookEventName: "SessionStart"/);
   assert.match(sessionStartScript, /skill index is not the full skill body/);
 
+  const persistenceReviewAgent = await fs.readFile(
+    path.join(codexHome, "agents", "sla-persistence-review.toml"),
+    "utf8",
+  );
+  assert.match(persistenceReviewAgent, /^name = "sla-persistence-review"$/m);
+  assert.match(persistenceReviewAgent, /Do not write SLA memories, skills, references, files, or configuration/);
+
   const hooksConfig = JSON.parse(await fs.readFile(path.join(codexHome, "hooks.json"), "utf8"));
   assert.equal(Array.isArray(hooksConfig.hooks.SessionStart), true);
   assert.equal(hooksConfig.hooks.Stop[0].hooks[0].command, "node " + JSON.stringify(path.join(codexHome, "hooks", "sla-stop-hook.js")));
@@ -890,6 +898,7 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.equal(config.hosts.codex.hooksConfigPath, path.join(codexHome, "hooks.json"));
   assert.equal(config.hosts.codex.stopHookPath, path.join(codexHome, "hooks", "sla-stop-hook.js"));
   assert.equal(config.hosts.codex.sessionStartHookPath, path.join(codexHome, "hooks", "sla-session-start-hook.js"));
+  assert.equal(config.hosts.codex.persistenceReviewAgentPath, path.join(codexHome, "agents", "sla-persistence-review.toml"));
   assert.equal(config.hosts.codex.hookScope, "global");
   assert.equal(config.hosts.codex.repositoryPath, null);
   assert.deepEqual(config.hosts.codex.installedSkills, [
@@ -926,7 +935,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
   assert.equal(secondParsed.ok, true);
   assert.deepEqual(secondParsed.data.createdFiles, []);
   assert.deepEqual(secondParsed.data.updatedFiles, []);
-  assert.equal(secondParsed.data.unchangedFiles.length, 9);
+  assert.equal(secondParsed.data.unchangedFiles.length, 10);
 
   const listed = run(["host", "list", "--json"], {
     env: { SLA_HOME: slaHome, CODEX_HOME: codexHome },
@@ -942,6 +951,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
     hooksConfigPath: path.join(codexHome, "hooks.json"),
     stopHookPath: path.join(codexHome, "hooks", "sla-stop-hook.js"),
     sessionStartHookPath: path.join(codexHome, "hooks", "sla-session-start-hook.js"),
+    persistenceReviewAgentPath: path.join(codexHome, "agents", "sla-persistence-review.toml"),
     hookScope: "global",
     repositoryPath: null,
     installedSkills: ["/use-profile", "/create-profile", "/update-profile"],
@@ -1288,8 +1298,10 @@ test("codex hook uninstall removes SLA Stop and SessionStart hooks without remov
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.data.removedFiles.includes(path.join(codexHome, "hooks", "sla-stop-hook.js")), true);
   assert.equal(parsed.data.removedFiles.includes(path.join(codexHome, "hooks", "sla-session-start-hook.js")), true);
+  assert.equal(parsed.data.removedFiles.includes(path.join(codexHome, "agents", "sla-persistence-review.toml")), true);
   await assertPathMissing(path.join(codexHome, "hooks", "sla-stop-hook.js"));
   await assertPathMissing(path.join(codexHome, "hooks", "sla-session-start-hook.js"));
+  await assertPathMissing(path.join(codexHome, "agents", "sla-persistence-review.toml"));
 
   const hooksConfig = JSON.parse(await fs.readFile(path.join(codexHome, "hooks.json"), "utf8"));
   assert.equal(hooksConfig.hooks.Stop.length, 1);
@@ -1314,11 +1326,13 @@ test("codex host install can target a repository-local codex hook config", async
   assert.equal(parsed.data.hooksConfigPath, path.join(resolvedRepositoryPath, ".codex", "hooks.json"));
   assert.equal(parsed.data.stopHookPath, path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-stop-hook.js"));
   assert.equal(parsed.data.sessionStartHookPath, path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-session-start-hook.js"));
+  assert.equal(parsed.data.persistenceReviewAgentPath, path.join(resolvedRepositoryPath, ".codex", "agents", "sla-persistence-review.toml"));
 
   await assertPathMissing(path.join(codexHome, "hooks.json"));
   await assertPathMissing(path.join(codexHome, "hooks", "sla-session-start-hook.js"));
   await assertPathExists(path.join(resolvedRepositoryPath, ".codex", "hooks.json"));
   await assertPathExists(path.join(resolvedRepositoryPath, ".codex", "hooks", "sla-session-start-hook.js"));
+  await assertPathExists(path.join(resolvedRepositoryPath, ".codex", "agents", "sla-persistence-review.toml"));
   await assertPathMissing(path.join(resolvedRepositoryPath, ".gitignore"));
 
   const hooksConfig = JSON.parse(await fs.readFile(path.join(resolvedRepositoryPath, ".codex", "hooks.json"), "utf8"));
@@ -1611,6 +1625,39 @@ test.skip("obsolete: installed codex stop hook falls back when no explicit profi
   assert.match(payload.reason, /^SLA -> Before stopping, review this session for durable SLA profile updates\./);
   assert.match(payload.reason, /If no explicit profile was established, use `sla profile get-default`/);
   assert.match(payload.reason, /Create or update reference docs/);
+});
+
+test("codex Stop hook dispatches one concise persistence-review continuation", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+  const env = { SLA_HOME: slaHome, CODEX_HOME: codexHome };
+
+  assert.equal(run(["host", "install", "codex", "--json"], { env }).status, 0);
+  const hookPath = path.join(codexHome, "hooks", "sla-stop-hook.js");
+
+  const dispatched = runCommand(process.execPath, [hookPath], {
+    env,
+    input: JSON.stringify({ stop_hook_active: false }),
+  });
+  assert.equal(dispatched.status, 0, dispatched.stderr);
+  const payload = JSON.parse(dispatched.stdout);
+  assert.equal(payload.decision, "block");
+  assert.match(payload.reason, /spawn exactly one `sla-persistence-review` subagent now/);
+  assert.match(payload.reason, /Do not perform the review yourself/);
+  assert.match(payload.reason, /report that outcome verbatim/);
+  assert.match(payload.reason, /without guessing a profile or writing SLA data/);
+  assert.doesNotMatch(payload.reason, /mandatory persistence review|sla memory add|references\/\*\.md/);
+
+  const guarded = runCommand(process.execPath, [hookPath], {
+    env,
+    input: JSON.stringify({ stop_hook_active: true }),
+  });
+  assert.equal(guarded.status, 0, guarded.stderr);
+  assert.equal(guarded.stdout, "");
+
+  const malformed = runCommand(process.execPath, [hookPath], { env, input: "not-json" });
+  assert.equal(malformed.status, 0, malformed.stderr);
+  assert.equal(malformed.stdout, "");
 });
 
 test("codex SessionStart hook injects configured profiles and silently no-ops otherwise", async () => {

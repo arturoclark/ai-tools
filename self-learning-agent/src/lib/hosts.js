@@ -6,6 +6,7 @@ const { ensureDirectory, pathExists, writeFileAtomic } = require("./filesystem")
 const { getProfilePath, requireConfig, assertProfileExists } = require("./profiles");
 const {
   getCodexAgentPath,
+  getCodexCustomAgentPath,
   getCodexHookScriptPath,
   getCodexHooksConfigPath,
   getCodexHooksPath,
@@ -31,8 +32,9 @@ const HOST_SKILL_KEYS = ["sla-use-profile", "sla-create-profile", "sla-update-pr
 const HOST_SKILL_COMMANDS = ["/use-profile", "/create-profile", "/update-profile"];
 const OPENAI_STYLE_STOP_HOOK_FILE = "sla-stop-hook.js";
 const CODEX_SESSION_START_HOOK_FILE = "sla-session-start-hook.js";
+const CODEX_PERSISTENCE_REVIEW_AGENT = "sla-persistence-review";
 const CODEX_SESSION_START_MATCHER = "startup|resume|clear|compact";
-const CODEX_STOP_HOOK_STATUS_MESSAGE = "Checking whether SLA memories or skills should be persisted";
+const CODEX_STOP_HOOK_STATUS_MESSAGE = "Dispatching SLA persistence review";
 const CURSOR_STOP_HOOK_EVENT = "stop";
 
 function getSupportedHosts() {
@@ -80,6 +82,7 @@ async function installHost(hostName, options = {}) {
     hooksConfigPath: installation.hooksConfigPath ?? null,
     stopHookPath: installation.stopHookPath ?? null,
     sessionStartHookPath: installation.sessionStartHookPath ?? null,
+    persistenceReviewAgentPath: installation.persistenceReviewAgentPath ?? null,
     hookScope: installation.hookScope ?? null,
     repositoryPath: installation.repositoryPath ?? null,
     profile: installation.profile ?? null,
@@ -156,6 +159,10 @@ function createCodexAdapter() {
         }
       }
 
+      if (await pathExists(hookTarget.persistenceReviewAgentPath)) {
+        existingFiles.push(hookTarget.persistenceReviewAgentPath);
+      }
+
       return {
         requiresOverwrite: existingFiles.length > 0,
         existingFiles,
@@ -201,6 +208,12 @@ function createCodexAdapter() {
         updatedFiles,
         unchangedFiles,
       });
+      await ensureDirectory(path.dirname(hookTarget.persistenceReviewAgentPath));
+      await writeTrackedFile(hookTarget.persistenceReviewAgentPath, renderCodexPersistenceReviewAgent(), {
+        createdFiles,
+        updatedFiles,
+        unchangedFiles,
+      });
       const hooksWriteResult = await writeCodexHooksConfig(hookTarget);
       createdFiles.push(...hooksWriteResult.createdFiles);
       updatedFiles.push(...hooksWriteResult.updatedFiles);
@@ -218,6 +231,7 @@ function createCodexAdapter() {
         hooksConfigPath: hookTarget.hooksConfigPath,
         stopHookPath: hookTarget.stopHookPath,
         sessionStartHookPath: hookTarget.sessionStartHookPath,
+        persistenceReviewAgentPath: hookTarget.persistenceReviewAgentPath,
         hookScope: hookTarget.scope,
         repositoryPath: hookTarget.repositoryPath,
         installedSkills: HOST_SKILL_COMMANDS,
@@ -231,6 +245,7 @@ function createCodexAdapter() {
           hooksConfigPath: hookTarget.hooksConfigPath,
           stopHookPath: hookTarget.stopHookPath,
           sessionStartHookPath: hookTarget.sessionStartHookPath,
+          persistenceReviewAgentPath: hookTarget.persistenceReviewAgentPath,
           hookScope: hookTarget.scope,
           repositoryPath: hookTarget.repositoryPath,
           installedAt: new Date().toISOString(),
@@ -253,6 +268,9 @@ function createCodexAdapter() {
         hooksConfigPath: installed ? hookTarget.hooksConfigPath : hostConfig.hooksConfigPath || null,
         stopHookPath: installed ? hookTarget.stopHookPath : hostConfig.stopHookPath || null,
         sessionStartHookPath: installed ? hookTarget.sessionStartHookPath : hostConfig.sessionStartHookPath || null,
+        persistenceReviewAgentPath: installed
+          ? hookTarget.persistenceReviewAgentPath
+          : hostConfig.persistenceReviewAgentPath || null,
         hookScope: installed ? hookTarget.scope : hostConfig.hookScope || null,
         repositoryPath: installed ? hookTarget.repositoryPath : hostConfig.repositoryPath || null,
         installedSkills,
@@ -262,7 +280,11 @@ function createCodexAdapter() {
     async uninstallHooks(options = {}) {
       const hookTarget = await resolveCodexHookTarget(options);
       const removedFiles = [];
-      for (const hookPath of [hookTarget.stopHookPath, hookTarget.sessionStartHookPath]) {
+      for (const hookPath of [
+        hookTarget.stopHookPath,
+        hookTarget.sessionStartHookPath,
+        hookTarget.persistenceReviewAgentPath,
+      ]) {
         if (await pathExists(hookPath)) {
           await fs.unlink(hookPath);
           removedFiles.push(hookPath);
@@ -819,6 +841,10 @@ async function isCodexHostInstalled(hookTarget, skills) {
     return false;
   }
 
+  if (!(await pathExists(hookTarget.persistenceReviewAgentPath))) {
+    return false;
+  }
+
   if (!(await pathExists(hookTarget.hooksConfigPath))) {
     return false;
   }
@@ -945,111 +971,38 @@ function renderCodexStopHookScript() {
     "",
     'const fs = require("node:fs");',
     "",
-    "const payload = JSON.parse(fs.readFileSync(0, \"utf8\"));",
-    "",
-    "if (payload.stop_hook_active) {",
+    "let payload;",
+    "try {",
+    "  payload = JSON.parse(fs.readFileSync(0, \"utf8\"));",
+    "} catch (_error) {",
     "  process.exit(0);",
     "}",
     "",
-    "const profiles = collectProfilesFromTranscript(payload.transcript_path);",
-    "const profileInstruction = profiles.length > 0",
-    "  ? [",
-    '      `Use the SLA profiles established in this session: ${profiles.join(\", \")}.`,',
-    '      \"Persist durable memories and skills against the correct listed profile. If work spans multiple listed profiles, update each relevant one instead of collapsing everything into the default profile.\",',
-    "    ].join(\"\\n\")",
-    "  : \"If no explicit profile was established, use `sla profile get-default` and only continue if that is actually the right target; otherwise say `No SLA profile was provided, and no matching profile could be resolved.`;\";",
+    "if (!payload || typeof payload !== \"object\" || payload.stop_hook_active) {",
+    "  process.exit(0);",
+    "}",
     "",
     "const response = {",
     '  decision: "block",',
-    '  reason: [',
-    '    "SLA -> Before stopping, review this session for durable SLA profile updates.",',
-    '    "Use `sla` CLI commands, not direct edits under `~/.sla`.",',
-    "    profileInstruction,",
-    '    "Do a mandatory persistence review: identify any durable facts, reusable skill-worthy capabilities, or rich supporting reference material learned during the session.",',
-    '    "Persist durable facts, constraints, environment notes, and stable preferences with `sla memory add`, `sla memory replace`, or `sla memory remove`.",',
-    '    "Persist reusable repo/domain/task capabilities by creating or updating a skill with `sla skill` commands. Store a skill when the session produced guidance that should help an agent succeed again in the same codebase, system, or recurring task family, not just when you discovered a strict step-by-step procedure.",',
-    '    "A skill is the right target for reusable operational guidance such as workflows, checklists, debugging playbooks, deploy/release runbooks, repo maps, environment rules, integration patterns, auth/routing rules, file-entrypoint guides, and similar recurring implementation knowledge.",',
-    '    "Do not flatten that kind of reusable guidance into memory. Keep `SKILL.md` action-oriented: when to use the skill, how to proceed, the important commands/files, the decision points, and any concise operational context needed to execute correctly.",',
-    '    "Put deep supporting context in `references/*.md` under the relevant skill directory.",',
-    '    "Create or update reference docs for architecture notes, environment matrices, bug forensics, API shapes, file maps, and implementation plans with `sla skill create-reference <skill> <name> --path <file>.md --title \\"<Title>\\"` or `sla skill write-file <skill> <name> --subdir references --path <file>.md`.",',
-    '    "If the storage target is ambiguous, run `sla profile classify <name> --stdin` or `--file` first. If the material clearly supports an existing skill without being a procedure itself, store it as a reference, not a memory entry.",',
-    '    "Only store durable knowledge learned from the session. After any needed persistence work, finish the turn."',
-    '  ].join("\\n")',
+    '  reason: "SLA persistence handoff: spawn exactly one `sla-persistence-review` subagent now. Do not perform the review yourself. Wait for its concise result, report that outcome verbatim, then finish. If it cannot safely resolve an active SLA profile or cannot dispatch, surface that outcome without guessing a profile or writing SLA data.",',
     "};",
     "",
     "process.stdout.write(`${JSON.stringify(response)}\\n`);",
     "",
-    "function collectProfilesFromTranscript(transcriptPath) {",
-    "  if (!transcriptPath) {",
-    "    return [];",
-    "  }",
+  ].join("\n");
+}
+
+function renderCodexPersistenceReviewAgent() {
+  return [
+    `name = "${CODEX_PERSISTENCE_REVIEW_AGENT}"`,
+    'description = "Dedicated SLA persistence-review subagent dispatched once when a Codex task completes."',
+    'developer_instructions = """',
+    "You are the SLA persistence-review subagent.",
     "",
-    "  try {",
-    "    const raw = fs.readFileSync(transcriptPath, \"utf8\");",
-    "    const seen = new Set();",
-    "    const profiles = [];",
-    "",
-    "    for (const line of raw.split(/\\r?\\n/)) {",
-    "      if (!line.trim()) {",
-    "        continue;",
-    "      }",
-    "",
-    "      const entry = JSON.parse(line);",
-    "      for (const text of extractTranscriptText(entry)) {",
-    "        for (const profile of extractProfilesFromText(text)) {",
-    "          if (seen.has(profile)) {",
-    "            continue;",
-    "          }",
-    "",
-    "          seen.add(profile);",
-    "          profiles.push(profile);",
-    "        }",
-    "      }",
-    "    }",
-    "",
-    "    return profiles;",
-    "  } catch (_error) {",
-    "    return [];",
-    "  }",
-    "}",
-    "",
-    "function extractTranscriptText(entry) {",
-    "  const texts = [];",
-    "  const payload = entry && typeof entry === \"object\" ? entry.payload : null;",
-    "",
-    "  if (!payload || typeof payload !== \"object\") {",
-    "    return texts;",
-    "  }",
-    "",
-    "  if (payload.type === \"message\" && payload.role === \"user\" && Array.isArray(payload.content)) {",
-    "    for (const item of payload.content) {",
-    "      if (item?.type === \"input_text\" && typeof item.text === \"string\") {",
-    "        texts.push(item.text);",
-    "      }",
-    "    }",
-    "  }",
-    "",
-    "  if (entry.type === \"event_msg\" && payload.type === \"user_message\" && typeof payload.message === \"string\") {",
-    "    texts.push(payload.message);",
-    "  }",
-    "",
-    "  return texts;",
-    "}",
-    "",
-    "function extractProfilesFromText(text) {",
-    "  const profiles = [];",
-    "  for (const rawLine of text.split(/\\r?\\n/)) {",
-    "    const line = rawLine.trim();",
-    "    const match = line.match(/^(?:[-*]\\s+)?\\/use-profile\\s+([A-Za-z0-9][A-Za-z0-9._-]*)\\b/);",
-    "    if (!match) {",
-    "      continue;",
-    "    }",
-    "",
-    "    profiles.push(match[1]);",
-    "  }",
-    "",
-    "  return profiles;",
-    "}",
+    "This capability currently validates the dispatch contract only. Do not write SLA memories, skills, references, files, or configuration.",
+    "Use only SLA profile scope explicitly available in the parent session context. Never guess or fall back to a default profile.",
+    "Return one concise outcome: `SLA persistence review ready for: <profiles>`, or `SLA persistence review skipped: no safely resolved SLA profile.`",
+    '\"\"\"',
     "",
   ].join("\n");
 }
@@ -1637,6 +1590,7 @@ async function resolveCodexHookTarget(options = {}) {
       hooksConfigPath: getCodexHooksConfigPath(),
       stopHookPath: getCodexHookScriptPath(OPENAI_STYLE_STOP_HOOK_FILE),
       sessionStartHookPath: getCodexHookScriptPath(CODEX_SESSION_START_HOOK_FILE),
+      persistenceReviewAgentPath: getCodexCustomAgentPath(CODEX_PERSISTENCE_REVIEW_AGENT),
     };
   }
 
@@ -1650,6 +1604,7 @@ async function resolveCodexHookTarget(options = {}) {
     hooksConfigPath: `${hooksRoot}/hooks.json`,
     stopHookPath: `${hooksRoot}/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`,
     sessionStartHookPath: path.join(hooksRoot, "hooks", CODEX_SESSION_START_HOOK_FILE),
+    persistenceReviewAgentPath: path.join(hooksRoot, "agents", `${CODEX_PERSISTENCE_REVIEW_AGENT}.toml`),
   };
 }
 

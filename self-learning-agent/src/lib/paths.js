@@ -124,6 +124,10 @@ function getCodexHooksPath() {
   return path.join(getCodexHome(), "hooks");
 }
 
+function getCodexAgentsPath() {
+  return path.join(getCodexHome(), "agents");
+}
+
 function getCodexHooksConfigPath() {
   return path.join(getCodexHome(), "hooks.json");
 }
@@ -138,6 +142,10 @@ function getCodexAgentPath(skillName, agentName = "openai") {
 
 function getCodexHookScriptPath(scriptName) {
   return path.join(getCodexHooksPath(), scriptName);
+}
+
+function getCodexCustomAgentPath(agentName) {
+  return path.join(getCodexAgentsPath(), `${agentName}.toml`);
 }
 
 function getCursorSkillsPath() {
@@ -183,6 +191,8 @@ function getClaudeHookScriptPath(scriptName) {
 module.exports = {
   getAgentFlavor,
   getCodexAgentPath,
+  getCodexAgentsPath,
+  getCodexCustomAgentPath,
   getCodexHookScriptPath,
   getCodexHome,
   getCodexHooksConfigPath,
