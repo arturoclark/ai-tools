@@ -112,6 +112,10 @@ function getUsagePath(profileName) {
   return path.join(getSkillsPath(profileName), ".usage.json");
 }
 
+function getOperationalContextPath(profileName) {
+  return path.join(getProfilePath(profileName), "operational-context", "entries.json");
+}
+
 function getSkillKey(skillName, options = {}) {
   if (!isHermesAgent()) {
     return skillName;
@@ -219,6 +223,7 @@ module.exports = {
   getPersistenceActivityPath,
   getMemoryStorePath,
   getMemoriesPath,
+  getOperationalContextPath,
   getProfilePath,
   getProfilesRoot,
   getRequestedAgentFlavor,

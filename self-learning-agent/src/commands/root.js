@@ -9,6 +9,7 @@ const { registerSoulCommands } = require("./soul");
 const { registerStatsCommands } = require("./stats");
 const { registerSessionCommands } = require("./session");
 const { registerPersistenceCommands } = require("./persistence");
+const { registerActiveContextCommands } = require("./active-context");
 const { attachExamples } = require("../lib/examples");
 const { ensureSchemaReady } = require("../lib/bootstrap");
 const { loadConfig } = require("../lib/config");
@@ -66,6 +67,7 @@ function buildRootCommand() {
   registerStatsCommands(program);
   registerSessionCommands(program);
   registerPersistenceCommands(program);
+  registerActiveContextCommands(program);
   registerHostCommands(program);
   registerHelpCommand(program);
 

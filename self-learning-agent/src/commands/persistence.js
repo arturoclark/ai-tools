@@ -13,12 +13,14 @@ function registerPersistenceCommands(program) {
     .option("--memory <count>", "Number of memory mutations.", parseCount, 0)
     .option("--skills <count>", "Number of skill mutations.", parseCount, 0)
     .option("--references <count>", "Number of reference mutations.", parseCount, 0)
+    .option("--operational-context <count>", "Number of operational-context lifecycle mutations.", parseCount, 0)
     .option("--failure-reason <code>", `Safe failure code: ${[...SAFE_FAILURE_REASONS].join(", ")}.`)
-    .option("--event-id <id>", "Optional stable dispatch identifier; duplicate IDs are recorded once.")
+    .option("--event-id <id>", "Optional stable dispatch identifier; unsafe values are redacted to a deterministic digest.")
     .description("Record a redacted result from one persistence-review invocation.")
     .addHelpText("after", attachExamples([
       "sla persistence record --profile research --outcome no-change",
       "sla persistence record --profile research --outcome changed --memory 1 --event-id session-42",
+      "sla persistence record --profile research --outcome changed --operational-context 1",
       "sla persistence record --outcome failed --failure-reason dispatch-unavailable",
     ]))
     .action(async (options, command) => {
@@ -28,6 +30,7 @@ function registerPersistenceCommands(program) {
         memory: options.memory,
         skills: options.skills,
         references: options.references,
+        operationalContext: options.operationalContext,
         failureReason: options.failureReason,
         eventId: options.eventId,
       });
@@ -75,7 +78,7 @@ function validateOptionalProfileName(value) {
 
 function formatRecord(record) {
   const profiles = record.profiles.length ? record.profiles.join(",") : "none";
-  const counts = `memory=${record.counts.memory}; skills=${record.counts.skills}; references=${record.counts.references}`;
+  const counts = `memory=${record.counts.memory}; skills=${record.counts.skills}; references=${record.counts.references}; operational-context=${record.counts.operationalContext || 0}`;
   return `${record.recordedAt} profiles=${profiles}; ${record.outcome}; ${counts}${record.failureReason ? `; failed: ${record.failureReason}` : ""}.`;
 }
 

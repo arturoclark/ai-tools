@@ -84,6 +84,7 @@ async function resolveRepositoryProfiles(inputPath = process.cwd()) {
       return {
         profile,
         profilePath: context.profilePath,
+        operationalContext: context.operationalContext,
         renderedContext: context.renderedContext,
       };
     }),

@@ -119,6 +119,9 @@ Common flows:
 sla profile create research
 sla soul view research
 sla memory add research --target memory --entry "The API runs in us-east-1"
+sla active-context add research --entry "Incident bridge is active" --expires-at 2026-09-09T00:00:00Z
+sla active-context list research --json
+sla active-context remove research --id <entry-id>
 sla skill create deploy research
 sla skill create-reference deploy research --path release-flow.md --title "Release Flow"
 sla stats profile research
@@ -136,6 +139,25 @@ sla host install codex --repository ~/development/self-learning-agent
 sla host install claude --repository ~/development/self-learning-agent
 sla host install cursor --repository ~/development/self-learning-agent
 ```
+
+## Expiring operational context
+
+Use `active-context` for profile-scoped information that is useful only for a limited period. Every entry must include an expiry timestamp, a resolution condition, or both. Entries are stored separately from durable memory and skills at `operational-context/entries.json` within the selected profile.
+
+`resolve` is an alias for `remove` when a recorded resolution condition is met.
+
+```bash
+sla active-context add research --entry "Use the incident channel" --expires-at 2026-09-09T00:00:00Z
+sla active-context add research --entry "Keep rollback notes handy" --resolution-condition "The deployment is complete"
+sla active-context list research --json
+sla active-context view research --id <entry-id> --json
+sla active-context remove research --id <entry-id>
+sla active-context resolve research --id <entry-id>
+```
+
+Use `sla profile classify <profile> --stdin --expires-at <timestamp>` as a secondary safety check after an agent has assessed the full session context. It provides a lexical recommendation, not the primary durability decision: a lifecycle-qualified operational item can lack temporary keywords. The review agent must reassess any disagreement conservatively, and may add active context only when its snapshot-based assessment still finds profile-specific, non-durable operational value with valid lifecycle metadata.
+
+`sla profile context <profile> --json` includes active entries in `operationalContext` and in a separate `## EXPIRING OPERATIONAL CONTEXT` rendered section. That section is temporary and advisory: it is not durable truth, mandatory policy, or higher-priority instructions. Entries whose expiry is already past are excluded from both views without changing the stored entry; a profile with none renders `(no active entries)`.
 
 ## Repository session profiles
 
@@ -160,7 +182,7 @@ The manifest stores ordered profile names only; it never stores profile content,
 
 `session bootstrap [directory] --json` walks up from the supplied directory and uses the nearest `.sla` file. It returns the selected profiles and their canonical bootstrap contexts. A repository without `.sla` returns `found: false`; SLA does not silently substitute the global default profile. Commit `.sla` only when its selected profile names are suitable for collaborators.
 
-For Codex, install the host integration once with `sla host install codex`. Its managed `SessionStart` hook loads the repository manifest during startup, resume, clear, and compaction without creating a user-visible continuation. The injected context includes the configured profiles and a compact skill index; view a relevant skill explicitly with `sla skill view <skill> <profile>`. `/use-profile` remains available when a user intentionally overrides or adds a profile.
+For Codex, install the host integration once with `sla host install codex`. Its managed `SessionStart` hook loads the repository manifest during startup, resume, clear, and compaction without creating a user-visible continuation. The injected context includes the configured profiles, a compact skill index, and each profile's separate temporary, advisory expiring-operational-context section; view a relevant skill explicitly with `sla skill view <skill> <profile>`. `/use-profile` remains available when a user intentionally overrides or adds a profile, and receives the same section through `sla profile context <profile> --json`.
 
 Malformed manifests and unavailable configured profiles silently produce no SessionStart context so hook diagnostics do not reveal local paths or profile details. Remove SLA-managed Codex hooks and the custom persistence-review agent with `sla host uninstall-hooks codex`; unrelated hooks and skills are preserved.
 
@@ -199,9 +221,9 @@ sla --hermes-agent host install hermes --hermes-profile research
 - when `--gitignore` is provided for a repository-local install and the repo already has a `.gitignore`, append `.codex/` if it is not already ignored
 - a concise stop hook that asks the resumed root agent to dispatch one persistence-review child before ending a turn
 
-The Stop hook asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. The root agent does not announce that dispatch or emit a progress update: after the child finishes, it returns only the child's concise result line. That child receives the session snapshot and active repository-profile scope, uses only `sla` CLI commands for warranted durable memory, skill, and reference updates, and returns an aggregate result only. It skips temporary, duplicate, ambiguous, or unsafe material; it never chooses a default profile by guesswork or exposes transcript contents or credentials in its outcome.
+The Stop hook asks the resumed root agent to dispatch exactly one `sla-persistence-review` custom agent. The root agent does not announce that dispatch or emit a progress update: after the child finishes, it returns only the child's concise result line. That child receives the session snapshot and active repository-profile scope, uses only `sla` CLI commands for warranted durable memory, skill, and reference updates, and returns an aggregate result only. It assesses durability and lifecycle suitability from that snapshot before using `sla profile classify` as a secondary safety check; a disagreement is reassessed conservatively rather than decided by keywords alone. It may create expiring operational context only when that assessment finds profile-specific, non-durable operational value with valid lifecycle metadata. For every selected profile it also prunes expired entries and resolves a recorded condition only when the snapshot proves it clearly. It skips temporary, duplicate, ambiguous, or unsafe material; it never chooses a default profile by guesswork or exposes entry content, transcript contents, or credentials in its outcome.
 
-Each child result is recorded as a concise, redacted local activity record. Inspect recent outcomes with `sla persistence activity` (or filter with `sla persistence activity <profile>`). Records contain only profile names, outcome, mutation counts, an optional stable dispatch ID, and a fixed safe failure code—never transcript content, file paths, credentials, or arbitrary error text. A supplied dispatch ID is idempotent, so retrying the same identified delivery does not create a second activity record. The review child does not blindly retry failed writes; it reports a safe failure instead.
+Each child result is recorded as a concise, redacted local activity record. Inspect recent outcomes with `sla persistence activity` (or filter with `sla persistence activity <profile>`). Records contain only profile names, outcome, aggregate mutation counts (including operational-context lifecycle changes), an optional stable dispatch ID, and a fixed safe failure code—never entry content, resolution conditions, transcript content, file paths, credentials, or arbitrary error text. A supplied dispatch ID is idempotent, so retrying the same identified delivery does not create a second activity record; an unsafe source identifier is stored only as a deterministic SHA-256 digest. The review child does not blindly retry failed writes; it reports a safe failure instead.
 
 ### Manual Codex persistence-dispatch verification
 
@@ -237,6 +259,7 @@ All user-facing commands support `--json` for machine-readable output:
 ```bash
 sla profile list --json
 sla memory view research --target user --json
+sla active-context list research --json
 sla stats --json
 ```
 

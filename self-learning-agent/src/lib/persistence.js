@@ -59,8 +59,9 @@ async function normalizeRecord(input) {
     memory: validateCount(input.memory, "memory"),
     skills: validateCount(input.skills, "skills"),
     references: validateCount(input.references, "references"),
+    operationalContext: validateCount(input.operationalContext, "operational context"),
   };
-  const totalChanges = counts.memory + counts.skills + counts.references;
+  const totalChanges = counts.memory + counts.skills + counts.references + counts.operationalContext;
   if (outcome === "changed" && totalChanges === 0) {
     throw new SLAError("A changed persistence outcome requires at least one recorded mutation.", {
       code: "INVALID_PERSISTENCE_COUNTS",
@@ -94,13 +95,7 @@ async function normalizeRecord(input) {
     });
   }
 
-  const eventId = input.eventId || null;
-  if (eventId && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventId)) {
-    throw new SLAError("Persistence event IDs may only contain letters, numbers, dot, underscore, colon, and hyphen.", {
-      code: "INVALID_PERSISTENCE_EVENT_ID",
-      exitCode: 2,
-    });
-  }
+  const eventId = normalizeEventId(input.eventId);
 
   return {
     schemaVersion: 1,
@@ -112,6 +107,22 @@ async function normalizeRecord(input) {
     counts,
     failureReason,
   };
+}
+
+function normalizeEventId(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const eventId = String(value);
+  if (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(eventId)) {
+    return eventId;
+  }
+
+  // Dispatch providers can expose otherwise stable identifiers containing local
+  // paths or other unsafe source details. Keep idempotency without persisting
+  // those details in the activity log or its CLI output.
+  return `sha256:${crypto.createHash("sha256").update(eventId, "utf8").digest("hex")}`;
 }
 
 function validateCount(value, name) {

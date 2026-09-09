@@ -4,6 +4,8 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("path");
 const { spawnSync } = require("node:child_process");
+const filesystem = require("../src/lib/filesystem");
+const operationalContext = require("../src/lib/operational-context");
 
 const repoRoot = path.join(__dirname, "..");
 const cliPath = path.join(__dirname, "..", "bin", "sla.js");
@@ -253,6 +255,16 @@ test("returns canonical profile context for empty and populated profiles", async
   });
   run(["skill", "create", "deploy", "research"], { env: { SLA_HOME: slaHome } });
   run(["skill", "view", "deploy", "research"], { env: { SLA_HOME: slaHome } });
+  const activeAdd = run(
+    ["active-context", "add", "research", "--entry", "Incident bridge remains active", "--expires-at", "2099-01-01T00:00:00Z", "--json"],
+    { env: { SLA_HOME: slaHome } },
+  );
+  assert.equal(activeAdd.status, 0, activeAdd.stderr);
+  const expiredAdd = run(
+    ["active-context", "add", "research", "--entry", "Retired incident bridge", "--expires-at", "2000-01-01T00:00:00Z", "--json"],
+    { env: { SLA_HOME: slaHome } },
+  );
+  assert.equal(expiredAdd.status, 0, expiredAdd.stderr);
 
   const result = run(["profile", "context", "research", "--json"], { env: { SLA_HOME: slaHome } });
   assert.equal(result.status, 0);
@@ -267,10 +279,39 @@ test("returns canonical profile context for empty and populated profiles", async
   assert.equal(parsed.data.skills.count, 1);
   assert.equal(parsed.data.skills.index[0].skill, "deploy");
   assert.equal(parsed.data.skills.index[0].usage.viewCount, 1);
+  assert.equal(parsed.data.operationalContext.entryCount, 1);
+  assert.equal(parsed.data.operationalContext.entries[0].content, "Incident bridge remains active");
   assert.match(parsed.data.renderedContext, /## SOUL/);
   assert.match(parsed.data.renderedContext, /## MEMORY/);
   assert.match(parsed.data.renderedContext, /## USER/);
   assert.match(parsed.data.renderedContext, /## SKILL INDEX/);
+  assert.match(parsed.data.renderedContext, /## EXPIRING OPERATIONAL CONTEXT/);
+  assert.match(parsed.data.renderedContext, /temporary, advisory operational context/);
+  assert.match(parsed.data.renderedContext, /Incident bridge remains active/);
+  assert.doesNotMatch(parsed.data.renderedContext, /Retired incident bridge/);
+  assert.ok(parsed.data.renderedContext.indexOf("## SOUL") < parsed.data.renderedContext.indexOf("## MEMORY"));
+  assert.ok(parsed.data.renderedContext.indexOf("## MEMORY") < parsed.data.renderedContext.indexOf("## USER"));
+  assert.ok(parsed.data.renderedContext.indexOf("## USER") < parsed.data.renderedContext.indexOf("## SKILL INDEX"));
+  assert.ok(parsed.data.renderedContext.indexOf("## SKILL INDEX") < parsed.data.renderedContext.indexOf("## EXPIRING OPERATIONAL CONTEXT"));
+
+  const textResult = run(["profile", "context", "research"], { env: { SLA_HOME: slaHome } });
+  assert.equal(textResult.status, 0, textResult.stderr);
+  assert.match(textResult.stdout, /## EXPIRING OPERATIONAL CONTEXT/);
+  assert.match(textResult.stdout, /Incident bridge remains active/);
+  assert.doesNotMatch(textResult.stdout, /Retired incident bridge/);
+
+  const absent = run(["profile", "context", "default", "--json"], { env: { SLA_HOME: slaHome } });
+  assert.equal(absent.status, 0, absent.stderr);
+  const absentParsed = JSON.parse(absent.stdout);
+  assert.deepEqual(absentParsed.data.operationalContext, { entryCount: 0, entries: [] });
+  assert.match(absentParsed.data.renderedContext, /\(no active entries\)/);
+
+  const malformedStorePath = path.join(slaHome, "default", "operational-context", "entries.json");
+  await fs.mkdir(path.dirname(malformedStorePath), { recursive: true });
+  await fs.writeFile(malformedStorePath, "not-json", "utf8");
+  const malformed = run(["profile", "context", "default", "--json"], { env: { SLA_HOME: slaHome } });
+  assert.equal(malformed.status, 1);
+  assert.equal(JSON.parse(malformed.stdout).error.code, "OPERATIONAL_CONTEXT_STORE_INVALID");
 });
 
 test("classifies candidate profile knowledge from stdin", async () => {
@@ -307,6 +348,175 @@ test("classifies candidate profile knowledge from stdin", async () => {
   });
   assert.equal(noneResult.status, 0);
   assert.equal(JSON.parse(noneResult.stdout).data.classification, "none");
+
+  const operationalResult = run(
+    ["profile", "classify", "research", "--stdin", "--expires-at", "2026-12-01T00:00:00Z", "--json"],
+    {
+      env: { SLA_HOME: slaHome },
+      input: "Temporary incident bridge instructions for today.\n",
+    },
+  );
+  assert.equal(operationalResult.status, 0);
+  const operationalParsed = JSON.parse(operationalResult.stdout);
+  assert.equal(operationalParsed.data.classification, "operational-context");
+  assert.equal(operationalParsed.data.recommendedTarget, "operational-context");
+  assert.equal(operationalParsed.data.lifecycle.expiresAt, "2026-12-01T00:00:00.000Z");
+
+  const lifecycleQualifiedBridge = run(
+    ["profile", "classify", "research", "--stdin", "--resolution-condition", "The release bridge is closed.", "--json"],
+    {
+      env: { SLA_HOME: slaHome },
+      input: "The SLA E2E deployment bridge remains open.\n",
+    },
+  );
+  assert.equal(lifecycleQualifiedBridge.status, 0);
+  assert.equal(JSON.parse(lifecycleQualifiedBridge.stdout).data.classification, "memory");
+});
+
+test("manages profile-scoped lifecycle-qualified operational context without changing durable stores", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const env = { SLA_HOME: slaHome };
+  run(["profile", "create", "research"], { env });
+  const durablePaths = [
+    path.join(slaHome, "research", "memories", "MEMORY.md"),
+    path.join(slaHome, "research", "memories", "USER.md"),
+    path.join(slaHome, "research", "skills", ".usage.json"),
+  ];
+  const durableBefore = await Promise.all(durablePaths.map((entry) => fs.readFile(entry, "utf8")));
+
+  const expiryAdd = run(
+    ["active-context", "add", "research", "--entry", "Incident bridge remains active", "--expires-at", "2026-12-01T00:00:00Z", "--json"],
+    { env },
+  );
+  assert.equal(expiryAdd.status, 0, expiryAdd.stderr);
+  const expiryEntry = JSON.parse(expiryAdd.stdout).data.entry;
+  assert.match(expiryEntry.id, /^[0-9a-f-]{36}$/);
+  assert.equal(expiryEntry.expiresAt, "2026-12-01T00:00:00.000Z");
+  assert.equal(expiryEntry.resolutionCondition, undefined);
+
+  const conditionAdd = run(
+    ["active-context", "add", "research", "--entry", "Use migration mapping", "--resolution-condition", "Production migration completes", "--json"],
+    { env },
+  );
+  assert.equal(conditionAdd.status, 0, conditionAdd.stderr);
+  const conditionEntry = JSON.parse(conditionAdd.stdout).data.entry;
+
+  const bothAdd = run(
+    ["active-context", "add", "research", "--entry", "Rollback owner is on call", "--expires-at", "2026-12-02T00:00:00Z", "--resolution-condition", "Rollback is cancelled", "--json"],
+    { env },
+  );
+  assert.equal(bothAdd.status, 0, bothAdd.stderr);
+
+  const listed = run(["active-context", "list", "research", "--json"], { env });
+  assert.equal(listed.status, 0);
+  assert.equal(JSON.parse(listed.stdout).data.entryCount, 3);
+
+  const viewed = run(["active-context", "view", "research", "--id", conditionEntry.id, "--json"], { env });
+  assert.equal(viewed.status, 0);
+  assert.deepEqual(JSON.parse(viewed.stdout).data.entry, conditionEntry);
+
+  const otherProfile = run(["active-context", "list", "default", "--json"], { env });
+  assert.equal(otherProfile.status, 0);
+  assert.deepEqual(JSON.parse(otherProfile.stdout).data.entries, []);
+
+  const durableAfter = await Promise.all(durablePaths.map((entry) => fs.readFile(entry, "utf8")));
+  assert.deepEqual(durableAfter, durableBefore);
+  const store = JSON.parse(await fs.readFile(path.join(slaHome, "research", "operational-context", "entries.json"), "utf8"));
+  assert.equal(store.schemaVersion, 1);
+  assert.equal(store.entries.length, 3);
+
+  const removed = run(["active-context", "resolve", "research", "--id", conditionEntry.id, "--json"], { env });
+  assert.equal(removed.status, 0);
+  assert.equal(JSON.parse(removed.stdout).data.removedEntry.id, conditionEntry.id);
+});
+
+test("rejects invalid, duplicate, unknown, and cross-profile operational-context operations without writes", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const env = { SLA_HOME: slaHome };
+  run(["profile", "create", "research"], { env });
+  const researchStorePath = path.join(slaHome, "research", "operational-context", "entries.json");
+
+  const invalid = run(["active-context", "add", "research", "--entry", "Temporary note", "--json"], { env });
+  assert.equal(invalid.status, 2);
+  assert.equal(JSON.parse(invalid.stdout).error.code, "OPERATIONAL_CONTEXT_LIFECYCLE_REQUIRED");
+  await assertPathMissing(researchStorePath);
+
+  const unknown = run(["active-context", "remove", "research", "--id", "missing", "--json"], { env });
+  assert.equal(unknown.status, 1);
+  assert.equal(JSON.parse(unknown.stdout).error.code, "OPERATIONAL_CONTEXT_ENTRY_NOT_FOUND");
+  await assertPathMissing(path.join(slaHome, "research", "operational-context"));
+
+  const first = run(
+    ["active-context", "add", "research", "--entry", "Temporary note", "--resolution-condition", "Release completes", "--json"],
+    { env },
+  );
+  assert.equal(first.status, 0);
+  const beforeDuplicate = await fs.readFile(researchStorePath, "utf8");
+  const duplicate = run(
+    ["active-context", "add", "research", "--entry", "Temporary note", "--resolution-condition", "Release completes", "--json"],
+    { env },
+  );
+  assert.equal(duplicate.status, 2);
+  assert.equal(JSON.parse(duplicate.stdout).error.code, "OPERATIONAL_CONTEXT_ENTRY_ALREADY_EXISTS");
+  assert.equal(await fs.readFile(researchStorePath, "utf8"), beforeDuplicate);
+
+  const crossProfile = run(["active-context", "remove", "default", "--id", JSON.parse(first.stdout).data.entry.id, "--json"], { env });
+  assert.equal(crossProfile.status, 1);
+  assert.equal(JSON.parse(crossProfile.stdout).error.code, "OPERATIONAL_CONTEXT_ENTRY_NOT_FOUND");
+  assert.equal(await fs.readFile(researchStorePath, "utf8"), beforeDuplicate);
+});
+
+test("operational-context discovery is backward compatible and reports malformed stores safely", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const env = { SLA_HOME: slaHome };
+  const legacyDurableStore = path.join(slaHome, "default", "memories", "MEMORY.md");
+  const durableBefore = await fs.readFile(legacyDurableStore, "utf8");
+  const empty = run(["active-context", "list", "default", "--json"], { env });
+  assert.equal(empty.status, 0);
+  assert.deepEqual(JSON.parse(empty.stdout).data.entries, []);
+  assert.equal(await fs.readFile(legacyDurableStore, "utf8"), durableBefore);
+
+  const storePath = path.join(slaHome, "default", "operational-context", "entries.json");
+  await fs.mkdir(path.dirname(storePath), { recursive: true });
+  await fs.writeFile(storePath, "not-json", "utf8");
+  const malformed = run(["active-context", "list", "default", "--json"], { env });
+  assert.equal(malformed.status, 1);
+  assert.equal(JSON.parse(malformed.stdout).error.code, "OPERATIONAL_CONTEXT_STORE_INVALID");
+  assert.equal(await fs.readFile(storePath, "utf8"), "not-json");
+});
+
+test("operational-context atomic write failures leave no partial or durable-store mutation", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const originalSlaHome = process.env.SLA_HOME;
+  const storePath = path.join(slaHome, "default", "operational-context", "entries.json");
+  const durableStorePath = path.join(slaHome, "default", "memories", "MEMORY.md");
+  const durableBefore = await fs.readFile(durableStorePath, "utf8");
+  const originalWriteFileAtomic = filesystem.writeFileAtomic;
+
+  try {
+    process.env.SLA_HOME = slaHome;
+    filesystem.writeFileAtomic = async () => {
+      throw new Error("simulated atomic-write failure");
+    };
+    await assert.rejects(
+      operationalContext.addOperationalContext("default", {
+        content: "Temporary incident bridge note",
+        resolutionCondition: "Incident is resolved",
+      }),
+      /simulated atomic-write failure/,
+    );
+  } finally {
+    filesystem.writeFileAtomic = originalWriteFileAtomic;
+    if (originalSlaHome === undefined) {
+      delete process.env.SLA_HOME;
+    } else {
+      process.env.SLA_HOME = originalSlaHome;
+    }
+  }
+
+  await assertPathMissing(storePath);
+  await assertPathMissing(`${storePath}.lock`);
+  assert.equal(await fs.readFile(durableStorePath, "utf8"), durableBefore);
 });
 
 test("sets and gets the default profile", async () => {
@@ -842,7 +1052,7 @@ test("records redacted persistence activity and de-duplicates a stable dispatch 
   assert.equal(first.data.recorded, true);
   assert.equal(first.data.record.outcome, "changed");
   assert.deepEqual(first.data.record.profiles, ["default"]);
-  assert.deepEqual(first.data.record.counts, { memory: 1, skills: 0, references: 0 });
+  assert.deepEqual(first.data.record.counts, { memory: 1, skills: 0, references: 0, operationalContext: 0 });
   assert.equal(first.data.record.failureReason, null);
 
   const duplicate = run([
@@ -856,6 +1066,41 @@ test("records redacted persistence activity and de-duplicates a stable dispatch 
   assert.equal(duplicate.status, 0, duplicate.stderr);
   assert.equal(JSON.parse(duplicate.stdout).data.recorded, false);
 
+  const unsafeEventId = "stop:1:/Users/example/.codex/hooks.json";
+  const unsafeRecorded = run([
+    "persistence", "record",
+    "--profile", "default",
+    "--outcome", "changed",
+    "--operational-context", "1",
+    "--event-id", unsafeEventId,
+    "--json",
+  ], { env });
+  assert.equal(unsafeRecorded.status, 0, unsafeRecorded.stderr);
+  const unsafeRecord = JSON.parse(unsafeRecorded.stdout).data.record;
+  assert.equal(unsafeRecord.eventId, "sha256:2e146bb929f264e99230f65d54243620ba82afa23176c30f41a5d9394d126612");
+  assert.doesNotMatch(JSON.stringify(unsafeRecord), /\/Users\/example|hooks\.json/);
+
+  const unsafeDuplicate = run([
+    "persistence", "record",
+    "--profile", "default",
+    "--outcome", "changed",
+    "--operational-context", "1",
+    "--event-id", unsafeEventId,
+    "--json",
+  ], { env });
+  assert.equal(unsafeDuplicate.status, 0, unsafeDuplicate.stderr);
+  assert.equal(JSON.parse(unsafeDuplicate.stdout).data.recorded, false);
+
+  const lifecycleRecorded = run([
+    "persistence", "record",
+    "--profile", "default",
+    "--outcome", "changed",
+    "--operational-context", "2",
+    "--json",
+  ], { env });
+  assert.equal(lifecycleRecorded.status, 0, lifecycleRecorded.stderr);
+  assert.equal(JSON.parse(lifecycleRecorded.stdout).data.record.counts.operationalContext, 2);
+
   const failed = run([
     "persistence", "record",
     "--outcome", "failed",
@@ -867,11 +1112,12 @@ test("records redacted persistence activity and de-duplicates a stable dispatch 
   const activity = run(["persistence", "activity", "--json"], { env });
   assert.equal(activity.status, 0, activity.stderr);
   const records = JSON.parse(activity.stdout).data.records;
-  assert.equal(records.length, 2);
+  assert.equal(records.length, 4);
   assert.equal(records[0].failureReason, "dispatch-unavailable");
+  assert.equal(records[1].counts.operationalContext, 2);
 
   const activityFile = await fs.readFile(path.join(slaHome, "activity", "persistence.jsonl"), "utf8");
-  assert.doesNotMatch(activityFile, /transcript|credential|secret|\/Users\//i);
+  assert.doesNotMatch(activityFile, /transcript|credential|secret|\/Users\/|hooks\.json|Incident bridge|resolution condition/i);
 
   const unsafeReason = run([
     "persistence", "record",
@@ -915,6 +1161,8 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   );
   assert.match(useProfileSkill, /sla profile dir <name>/);
   assert.match(useProfileSkill, /sla profile context <name> --json/);
+  assert.match(useProfileSkill, /operationalContext/);
+  assert.match(useProfileSkill, /temporary, advisory operational context/);
   assert.match(useProfileSkill, /sla memory add <profile> --target memory\|user --entry/);
   assert.match(useProfileSkill, /sla memory replace <profile> --target memory\|user --match/);
   assert.match(useProfileSkill, /sla memory remove <profile> --target memory\|user --match/);
@@ -933,6 +1181,7 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.match(sessionStartScript, /session", "bootstrap"/);
   assert.match(sessionStartScript, /hookEventName: "SessionStart"/);
   assert.match(sessionStartScript, /skill index is not the full skill body/);
+  assert.match(sessionStartScript, /active temporary advisory operational context/);
 
   const persistenceReviewAgent = await fs.readFile(
     path.join(codexHome, "agents", "sla-persistence-review.toml"),
@@ -947,16 +1196,35 @@ test("installs codex host wrappers and tracks installation metadata", async () =
   assert.match(persistenceReviewAgent, /sla skill create <skill> <profile>/);
   assert.match(persistenceReviewAgent, /sla skill edit <skill> <profile> --stdin/);
   assert.match(persistenceReviewAgent, /sla skill create-reference <skill> <profile>/);
+  assert.match(persistenceReviewAgent, /First assess each candidate yourself from the full forked snapshot/);
   assert.match(persistenceReviewAgent, /sla profile classify <profile> --stdin/);
+  assert.ok(
+    persistenceReviewAgent.indexOf("First assess each candidate yourself") <
+      persistenceReviewAgent.indexOf("After your assessment, run `sla profile classify"),
+  );
+  assert.match(persistenceReviewAgent, /for every candidate you are considering for a persistence write/);
+  assert.match(persistenceReviewAgent, /secondary safety check/);
+  assert.match(persistenceReviewAgent, /may miss lifecycle-qualified operational context whose wording lacks temporary keywords/);
+  assert.match(persistenceReviewAgent, /Do not silently treat a `memory`, `user`, or `skill` recommendation as automatic permission or automatic rejection/);
+  assert.match(persistenceReviewAgent, /valid `--expires-at`, `--resolution-condition`, or both/);
+  assert.match(persistenceReviewAgent, /sla active-context add <profile> --entry <text>/);
+  assert.match(persistenceReviewAgent, /Agent assessment, valid lifecycle metadata, and a conservative secondary-check review are all required/);
+  assert.match(persistenceReviewAgent, /sla active-context list <profile> --json/);
+  assert.match(persistenceReviewAgent, /remove each expired entry with `sla active-context remove <profile> --id <entry-id>`/);
+  assert.match(persistenceReviewAgent, /only against clear evidence in this forked session snapshot/);
+  assert.match(persistenceReviewAgent, /If evidence is unclear, incomplete, inferred, or belongs to another profile, retain the entry/);
+  assert.match(persistenceReviewAgent, /Skip an exact or materially duplicate active entry/);
   assert.match(persistenceReviewAgent, /If several active profiles exist, route each candidate only to the profile it is specific to/);
   assert.match(persistenceReviewAgent, /If the target remains ambiguous, skip that candidate/);
   assert.match(persistenceReviewAgent, /Skip exact or materially duplicate content/);
-  assert.match(persistenceReviewAgent, /temporary next steps, raw transcript material, and secrets/);
+  assert.match(persistenceReviewAgent, /temporary next step, raw transcript material, or secret/);
   assert.match(persistenceReviewAgent, /If a CLI write fails, do not retry blindly/);
   assert.match(persistenceReviewAgent, /Do not announce that you are starting, dispatching, reviewing, or finishing/);
   assert.match(persistenceReviewAgent, /sla persistence record/);
-  assert.match(persistenceReviewAgent, /Never place transcript text, secrets, paths, or an arbitrary error message in the activity record/);
-  assert.match(persistenceReviewAgent, /memory=<count>; skills=<count>; references=<count>/);
+  assert.match(persistenceReviewAgent, /Count active-context adds, expired-entry pruning, and clearly resolved entries only with `--operational-context <count>`/);
+  assert.match(persistenceReviewAgent, /SLA deterministically redacts unsafe identifiers before storage/);
+  assert.match(persistenceReviewAgent, /Never place entry content, resolution conditions, transcript text, secrets, paths, or an arbitrary error message in the activity record/);
+  assert.match(persistenceReviewAgent, /memory=<count>; skills=<count>; references=<count>; operational-context=<count>/);
   assert.match(persistenceReviewAgent, /no-change/);
   assert.match(persistenceReviewAgent, /failed: <safe reason>/);
 
@@ -1773,6 +2041,8 @@ test("codex SessionStart hook injects configured profiles and silently no-ops ot
     env,
     input: "# SOUL\\n\\nResearch bootstrap context.\\n",
   }).status, 0);
+  assert.equal(run(["active-context", "add", "research", "--entry", "Research incident bridge", "--expires-at", "2099-01-01T00:00:00Z"], { env }).status, 0);
+  assert.equal(run(["active-context", "add", "default", "--entry", "Default-only incident bridge", "--expires-at", "2099-01-01T00:00:00Z"], { env }).status, 0);
   assert.equal(run(["session", "install", "--profile", "research", "--profile", "default"], {
     cwd: repositoryPath,
     env,
@@ -1790,6 +2060,9 @@ test("codex SessionStart hook injects configured profiles and silently no-ops ot
     assert.equal(payload.hookSpecificOutput.hookEventName, "SessionStart");
     assert.match(payload.hookSpecificOutput.additionalContext, /SLA Repository Profiles: research, default/);
     assert.match(payload.hookSpecificOutput.additionalContext, /Research bootstrap context/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /Research incident bridge/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /Default-only incident bridge/);
+    assert.match(payload.hookSpecificOutput.additionalContext, /temporary, advisory operational context/);
     assert.match(payload.hookSpecificOutput.additionalContext, /skill index is not the full skill body/);
     assert.match(payload.hookSpecificOutput.additionalContext, /direct edits under ~\/\.sla/);
   }
@@ -1890,6 +2163,9 @@ test("session bootstrap resolves the nearest manifest without using the global d
     env: { SLA_HOME: slaHome },
     input: "# SOUL\n\nRepository research context.\n",
   });
+  assert.equal(run(["active-context", "add", "research", "--entry", "Research-only active context", "--expires-at", "2099-01-01T00:00:00Z"], { env: { SLA_HOME: slaHome } }).status, 0);
+  assert.equal(run(["active-context", "add", "research", "--entry", "Expired research context", "--expires-at", "2000-01-01T00:00:00Z"], { env: { SLA_HOME: slaHome } }).status, 0);
+  assert.equal(run(["active-context", "add", "default", "--entry", "Default-only active context", "--expires-at", "2099-01-01T00:00:00Z"], { env: { SLA_HOME: slaHome } }).status, 0);
   await fs.writeFile(path.join(repositoryPath, ".sla"), '{"schemaVersion":1,"profiles":["default"]}\n');
   await fs.writeFile(path.join(repositoryPath, "packages", ".sla"), '{"schemaVersion":1,"profiles":["research","default"]}\n');
 
@@ -1900,6 +2176,10 @@ test("session bootstrap resolves the nearest manifest without using the global d
   assert.equal(parsed.data.repositoryPath, await fs.realpath(path.join(repositoryPath, "packages")));
   assert.deepEqual(parsed.data.profiles.map((entry) => entry.profile), ["research", "default"]);
   assert.match(parsed.data.profiles[0].renderedContext, /Repository research context/);
+  assert.deepEqual(parsed.data.profiles[0].operationalContext.entries.map((entry) => entry.content), ["Research-only active context"]);
+  assert.deepEqual(parsed.data.profiles[1].operationalContext.entries.map((entry) => entry.content), ["Default-only active context"]);
+  assert.doesNotMatch(parsed.data.profiles[0].renderedContext, /Expired research context|Default-only active context/);
+  assert.doesNotMatch(parsed.data.profiles[1].renderedContext, /Research-only active context/);
 
   const unconfiguredPath = await fs.mkdtemp(path.join(os.tmpdir(), "sla-session-unconfigured-"));
   const unconfigured = run(["session", "bootstrap", unconfiguredPath, "--json"], { env: { SLA_HOME: slaHome } });
@@ -1944,6 +2224,7 @@ test("npm pack dry run includes only publish-safe runtime files", () => {
     "bin/sla.js",
     "package.json",
     "src/cli.js",
+    "src/commands/active-context.js",
     "src/commands/help.js",
     "src/commands/host.js",
     "src/commands/install.js",
@@ -1964,6 +2245,7 @@ test("npm pack dry run includes only publish-safe runtime files", () => {
     "src/lib/hosts.js",
     "src/lib/memory.js",
     "src/lib/not-implemented.js",
+    "src/lib/operational-context.js",
     "src/lib/output.js",
     "src/lib/paths.js",
     "src/lib/persistence.js",

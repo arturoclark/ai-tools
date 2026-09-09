@@ -156,8 +156,10 @@ function registerProfileCommands(program) {
     .argument("[name]", "Profile name.", validateOptionalProfileName)
     .option("--file <path>", "Read candidate content from a file.")
     .option("--stdin", "Read candidate content from stdin.")
-    .description("Classify candidate knowledge as memory, user, skill, or none.")
-    .addHelpText("after", attachExamples(["sla profile classify research --stdin", "sla profile classify --file ./note.md --json"]))
+    .option("--expires-at <timestamp>", "Lifecycle expiry for non-durable operational context.")
+    .option("--resolution-condition <text>", "Lifecycle resolution condition for non-durable operational context.")
+    .description("Classify candidate knowledge as memory, user, skill, operational-context, or none.")
+    .addHelpText("after", attachExamples(["sla profile classify research --stdin", "sla profile classify research --stdin --expires-at 2026-09-09T00:00:00Z", "sla profile classify --file ./note.md --json"]))
     .action(async (...args) => {
       const name = args[0];
       const options = args[1];
