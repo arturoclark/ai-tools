@@ -1259,14 +1259,16 @@ test("installs codex host wrappers and tracks installation metadata", async () =
 test("rerunning codex host install is idempotent and host list reports status", async () => {
   const slaHome = await createInstalledSlaHome();
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+  const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-test-"));
+  const env = { SLA_HOME: slaHome, CODEX_HOME: codexHome, CLAUDE_CONFIG_DIR: claudeHome };
 
   const first = run(["host", "install", "codex", "--json"], {
-    env: { SLA_HOME: slaHome, CODEX_HOME: codexHome },
+    env,
   });
   assert.equal(first.status, 0);
 
   const blocked = run(["host", "install", "codex", "--json"], {
-    env: { SLA_HOME: slaHome, CODEX_HOME: codexHome },
+    env,
   });
   assert.equal(blocked.status, 1);
   const blockedParsed = JSON.parse(blocked.stdout);
@@ -1274,7 +1276,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
   assert.equal(blockedParsed.error.code, "HOST_INSTALL_OVERWRITE_REQUIRED");
 
   const second = run(["host", "install", "codex", "--yes", "--json"], {
-    env: { SLA_HOME: slaHome, CODEX_HOME: codexHome },
+    env,
   });
   assert.equal(second.status, 0);
 
@@ -1285,7 +1287,7 @@ test("rerunning codex host install is idempotent and host list reports status", 
   assert.equal(secondParsed.data.unchangedFiles.length, 10);
 
   const listed = run(["host", "list", "--json"], {
-    env: { SLA_HOME: slaHome, CODEX_HOME: codexHome },
+    env,
   });
   assert.equal(listed.status, 0);
 
@@ -1312,6 +1314,10 @@ test("rerunning codex host install is idempotent and host list reports status", 
     installPath: null,
     hooksConfigPath: null,
     stopHookPath: null,
+    sessionStartHookPath: null,
+    persistenceReviewStartHookPath: null,
+    persistenceReviewAgentPath: null,
+    persistenceActivityPath: path.join(slaHome, "activity", "persistence.jsonl"),
     hookScope: null,
     repositoryPath: null,
     installedSkills: ["/use-profile", "/create-profile", "/update-profile"],
@@ -1346,12 +1352,15 @@ test("rerunning codex host install is idempotent and host list reports status", 
   assert.ok(listedParsed.data.hosts[0].installedAt);
 });
 
-test("installs Claude Code host wrappers and merges a managed Stop hook into settings", async () => {
+test("installs Claude Code lifecycle hooks and persistence-review child without changing unrelated settings", async () => {
   const slaHome = await createInstalledSlaHome();
   const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-test-"));
   await fs.writeFile(
     path.join(claudeHome, "settings.json"),
-    `${JSON.stringify({ permissions: { allow: ["Bash(npm test)"] } }, null, 2)}\n`,
+    `${JSON.stringify({
+      permissions: { allow: ["Bash(npm test)"] },
+      hooks: { Stop: [{ hooks: [{ type: "command", command: "/usr/bin/env unrelated-stop" }] }] },
+    }, null, 2)}\n`,
   );
 
   const result = run(["host", "install", "claude", "--json"], {
@@ -1364,23 +1373,110 @@ test("installs Claude Code host wrappers and merges a managed Stop hook into set
   assert.equal(parsed.data.installPath, path.join(claudeHome, "skills"));
   assert.equal(parsed.data.hooksConfigPath, path.join(claudeHome, "settings.json"));
   assert.equal(parsed.data.stopHookPath, path.join(claudeHome, "hooks", "sla-stop-hook.js"));
+  assert.equal(parsed.data.sessionStartHookPath, path.join(claudeHome, "hooks", "sla-session-start-hook.js"));
+  assert.equal(
+    parsed.data.persistenceReviewStartHookPath,
+    path.join(claudeHome, "hooks", "sla-persistence-review-start-hook.js"),
+  );
+  assert.equal(parsed.data.persistenceReviewAgentPath, path.join(claudeHome, "agents", "sla-persistence-review.md"));
+  assert.equal(parsed.data.persistenceActivityPath, path.join(slaHome, "activity", "persistence.jsonl"));
   await assertPathExists(path.join(claudeHome, "skills", "sla-use-profile", "SKILL.md"));
+  await assertPathExists(path.join(claudeHome, "hooks", "sla-session-start-hook.js"));
+  await assertPathExists(path.join(claudeHome, "hooks", "sla-persistence-review-start-hook.js"));
 
   const settings = JSON.parse(await fs.readFile(path.join(claudeHome, "settings.json"), "utf8"));
   assert.deepEqual(settings.permissions.allow, ["Bash(npm test)"]);
-  assert.equal(settings.hooks.Stop[0].hooks[0].type, "command");
+  assert.equal(settings.hooks.Stop[0].hooks[0].command, "/usr/bin/env unrelated-stop");
   assert.equal(
-    settings.hooks.Stop[0].hooks[0].command,
+    settings.hooks.Stop[1].hooks[0].command,
     `node ${JSON.stringify(path.join(claudeHome, "hooks", "sla-stop-hook.js"))}`,
   );
+  assert.equal(
+    settings.hooks.SessionStart[0].hooks[0].command,
+    `node ${JSON.stringify(path.join(claudeHome, "hooks", "sla-session-start-hook.js"))}`,
+  );
+  assert.equal(settings.hooks.SubagentStart[0].matcher, "^sla-persistence-review$");
+  assert.equal(
+    settings.hooks.SubagentStart[0].hooks[0].command,
+    `node ${JSON.stringify(path.join(claudeHome, "hooks", "sla-persistence-review-start-hook.js"))}`,
+  );
+
+  const stopHookPath = path.join(claudeHome, "hooks", "sla-stop-hook.js");
+  const dispatched = runCommand(process.execPath, [stopHookPath], {
+    env: { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome },
+    input: JSON.stringify({ stop_hook_active: false }),
+  });
+  assert.equal(dispatched.status, 0, dispatched.stderr);
+  const stopPayload = JSON.parse(dispatched.stdout);
+  assert.equal(stopPayload.decision, "block");
+  assert.match(stopPayload.reason, /use the Agent tool to dispatch exactly one `sla-persistence-review` custom subagent now/);
+  assert.equal(
+    runCommand(process.execPath, [stopHookPath], {
+      input: JSON.stringify({ stop_hook_active: true }),
+    }).stdout,
+    "",
+  );
+
+  const agentDefinition = await fs.readFile(path.join(claudeHome, "agents", "sla-persistence-review.md"), "utf8");
+  assert.match(agentDefinition, /^---\nname: sla-persistence-review\n/m);
+  assert.match(agentDefinition, /^tools: Bash, Read$/m);
+  assert.match(agentDefinition, /parent-session transcript snapshot supplied by the matching SubagentStart hook/);
+  assert.match(agentDefinition, /sla active-context list <profile> --json/);
 
   const repositoryPath = await fs.mkdtemp(path.join(os.tmpdir(), "claude-repo-"));
+  assert.equal(run(["session", "install", "--profile", "default"], {
+    cwd: repositoryPath,
+    env: { SLA_HOME: slaHome },
+  }).status, 0);
+  const sessionStart = runCommand(process.execPath, [path.join(claudeHome, "hooks", "sla-session-start-hook.js")], {
+    env: { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome },
+    input: JSON.stringify({ cwd: repositoryPath }),
+  });
+  assert.equal(sessionStart.status, 0, sessionStart.stderr);
+  assert.equal(JSON.parse(sessionStart.stdout).hookSpecificOutput.hookEventName, "SessionStart");
+  const childStart = runCommand(process.execPath, [path.join(claudeHome, "hooks", "sla-persistence-review-start-hook.js")], {
+    env: { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome },
+    input: JSON.stringify({ cwd: repositoryPath, transcript_path: "/tmp/parent-session.jsonl" }),
+  });
+  assert.equal(childStart.status, 0, childStart.stderr);
+  const childPayload = JSON.parse(childStart.stdout);
+  assert.equal(childPayload.hookSpecificOutput.hookEventName, "SubagentStart");
+  assert.match(childPayload.hookSpecificOutput.additionalContext, /SLA Repository Profiles: default/);
+  assert.match(childPayload.hookSpecificOutput.additionalContext, /parent-session transcript snapshot at \/tmp\/parent-session\.jsonl/);
+
   const localResult = run(["host", "install", "claude", "--repository", repositoryPath, "--yes", "--json"], {
     env: { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome },
   });
   assert.equal(localResult.status, 0);
   const localSettings = JSON.parse(await fs.readFile(path.join(repositoryPath, ".claude", "settings.json"), "utf8"));
   assert.equal(localSettings.hooks.Stop[0].hooks[0].command, "node .claude/hooks/sla-stop-hook.js");
+});
+
+test("Claude hook uninstall removes only SLA lifecycle assets", async () => {
+  const slaHome = await createInstalledSlaHome();
+  const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), "claude-test-"));
+  const env = { SLA_HOME: slaHome, CLAUDE_CONFIG_DIR: claudeHome };
+  await fs.writeFile(path.join(claudeHome, "settings.json"), JSON.stringify({
+    hooks: {
+      Stop: [{ hooks: [{ type: "command", command: "/usr/bin/env unrelated-stop" }] }],
+      SessionStart: [{ hooks: [{ type: "command", command: "/usr/bin/env unrelated-start" }] }],
+      SubagentStart: [{ matcher: "other-agent", hooks: [{ type: "command", command: "/usr/bin/env unrelated-child" }] }],
+    },
+  }, null, 2));
+
+  assert.equal(run(["host", "install", "claude", "--json"], { env }).status, 0);
+  const result = run(["host", "uninstall-hooks", "claude", "--json"], { env });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.data.removedFiles.includes(path.join(claudeHome, "hooks", "sla-stop-hook.js")), true);
+  assert.equal(parsed.data.removedFiles.includes(path.join(claudeHome, "hooks", "sla-session-start-hook.js")), true);
+  assert.equal(parsed.data.removedFiles.includes(path.join(claudeHome, "hooks", "sla-persistence-review-start-hook.js")), true);
+  assert.equal(parsed.data.removedFiles.includes(path.join(claudeHome, "agents", "sla-persistence-review.md")), true);
+
+  const settings = JSON.parse(await fs.readFile(path.join(claudeHome, "settings.json"), "utf8"));
+  assert.equal(settings.hooks.Stop[0].hooks[0].command, "/usr/bin/env unrelated-stop");
+  assert.equal(settings.hooks.SessionStart[0].hooks[0].command, "/usr/bin/env unrelated-start");
+  assert.equal(settings.hooks.SubagentStart[0].hooks[0].command, "/usr/bin/env unrelated-child");
 });
 
 test("installs Cursor host wrappers into the configured Cursor home and records metadata", async () => {

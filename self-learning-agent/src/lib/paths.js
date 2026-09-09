@@ -184,6 +184,10 @@ function getClaudeHooksPath() {
   return path.join(getClaudeHome(), "hooks");
 }
 
+function getClaudeAgentsPath() {
+  return path.join(getClaudeHome(), "agents");
+}
+
 function getClaudeSettingsPath() {
   return path.join(getClaudeHome(), "settings.json");
 }
@@ -194,6 +198,10 @@ function getClaudeSkillPath(skillName) {
 
 function getClaudeHookScriptPath(scriptName) {
   return path.join(getClaudeHooksPath(), scriptName);
+}
+
+function getClaudeCustomAgentPath(agentName) {
+  return path.join(getClaudeAgentsPath(), `${agentName}.md`);
 }
 
 module.exports = {
@@ -208,6 +216,8 @@ module.exports = {
   getCodexSkillPath,
   getCodexSkillsPath,
   getClaudeHome,
+  getClaudeAgentsPath,
+  getClaudeCustomAgentPath,
   getClaudeHookScriptPath,
   getClaudeHooksPath,
   getClaudeSettingsPath,

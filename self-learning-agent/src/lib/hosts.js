@@ -13,6 +13,7 @@ const {
   getCodexSkillPath,
   getCodexSkillsPath,
   getPersistenceActivityPath,
+  getClaudeCustomAgentPath,
   getClaudeHookScriptPath,
   getClaudeHooksPath,
   getClaudeSettingsPath,
@@ -34,6 +35,9 @@ const HOST_SKILL_COMMANDS = ["/use-profile", "/create-profile", "/update-profile
 const OPENAI_STYLE_STOP_HOOK_FILE = "sla-stop-hook.js";
 const CODEX_SESSION_START_HOOK_FILE = "sla-session-start-hook.js";
 const CODEX_PERSISTENCE_REVIEW_AGENT = "sla-persistence-review";
+const CLAUDE_SESSION_START_HOOK_FILE = "sla-session-start-hook.js";
+const CLAUDE_PERSISTENCE_REVIEW_START_HOOK_FILE = "sla-persistence-review-start-hook.js";
+const CLAUDE_PERSISTENCE_REVIEW_AGENT = "sla-persistence-review";
 const CODEX_SESSION_START_MATCHER = "startup|resume|clear|compact";
 const CURSOR_STOP_HOOK_EVENT = "stop";
 
@@ -82,6 +86,7 @@ async function installHost(hostName, options = {}) {
     hooksConfigPath: installation.hooksConfigPath ?? null,
     stopHookPath: installation.stopHookPath ?? null,
     sessionStartHookPath: installation.sessionStartHookPath ?? null,
+    persistenceReviewStartHookPath: installation.persistenceReviewStartHookPath ?? null,
     persistenceReviewAgentPath: installation.persistenceReviewAgentPath ?? null,
     persistenceActivityPath: getPersistenceActivityPath(),
     hookScope: installation.hookScope ?? null,
@@ -324,8 +329,15 @@ function createClaudeAdapter() {
         }
       }
 
-      if (await pathExists(hookTarget.stopHookPath)) {
-        existingFiles.push(hookTarget.stopHookPath);
+      for (const hostFile of [
+        hookTarget.stopHookPath,
+        hookTarget.sessionStartHookPath,
+        hookTarget.persistenceReviewStartHookPath,
+        hookTarget.persistenceReviewAgentPath,
+      ]) {
+        if (await pathExists(hostFile)) {
+          existingFiles.push(hostFile);
+        }
       }
 
       return { requiresOverwrite: existingFiles.length > 0, existingFiles };
@@ -349,6 +361,22 @@ function createClaudeAdapter() {
       await writeTrackedFile(hookTarget.stopHookPath, renderClaudeStopHookScript(), {
         createdFiles, updatedFiles, unchangedFiles,
       });
+      await writeTrackedFile(
+        hookTarget.sessionStartHookPath,
+        renderClaudeSessionStartHookScript(process.argv[1]),
+        { createdFiles, updatedFiles, unchangedFiles },
+      );
+      await writeTrackedFile(
+        hookTarget.persistenceReviewStartHookPath,
+        renderClaudePersistenceReviewStartHookScript(process.argv[1]),
+        { createdFiles, updatedFiles, unchangedFiles },
+      );
+      await ensureDirectory(path.dirname(hookTarget.persistenceReviewAgentPath));
+      await writeTrackedFile(
+        hookTarget.persistenceReviewAgentPath,
+        renderClaudePersistenceReviewAgent(),
+        { createdFiles, updatedFiles, unchangedFiles },
+      );
       const settingsWriteResult = await writeClaudeSettings(hookTarget);
       createdFiles.push(...settingsWriteResult.createdFiles);
       updatedFiles.push(...settingsWriteResult.updatedFiles);
@@ -363,11 +391,20 @@ function createClaudeAdapter() {
 
       return {
         installPath, hooksConfigPath: hookTarget.hooksConfigPath, stopHookPath: hookTarget.stopHookPath,
+        sessionStartHookPath: hookTarget.sessionStartHookPath,
+        persistenceReviewStartHookPath: hookTarget.persistenceReviewStartHookPath,
+        persistenceReviewAgentPath: hookTarget.persistenceReviewAgentPath,
+        persistenceActivityPath: getPersistenceActivityPath(),
         hookScope: hookTarget.scope, repositoryPath: hookTarget.repositoryPath,
         installedSkills: HOST_SKILL_COMMANDS, createdFiles, updatedFiles, unchangedFiles,
         configEntry: {
           available: true, installed: true, installPath, hooksConfigPath: hookTarget.hooksConfigPath,
-          stopHookPath: hookTarget.stopHookPath, hookScope: hookTarget.scope,
+          stopHookPath: hookTarget.stopHookPath,
+          sessionStartHookPath: hookTarget.sessionStartHookPath,
+          persistenceReviewStartHookPath: hookTarget.persistenceReviewStartHookPath,
+          persistenceReviewAgentPath: hookTarget.persistenceReviewAgentPath,
+          persistenceActivityPath: getPersistenceActivityPath(),
+          hookScope: hookTarget.scope,
           repositoryPath: hookTarget.repositoryPath, installedAt: new Date().toISOString(),
           installedSkills: HOST_SKILL_COMMANDS,
         },
@@ -383,9 +420,42 @@ function createClaudeAdapter() {
         installPath: installed ? hostConfig.installPath || getClaudeSkillsPath() : hostConfig.installPath || null,
         hooksConfigPath: installed ? hookTarget.hooksConfigPath : hostConfig.hooksConfigPath || null,
         stopHookPath: installed ? hookTarget.stopHookPath : hostConfig.stopHookPath || null,
+        sessionStartHookPath: installed ? hookTarget.sessionStartHookPath : hostConfig.sessionStartHookPath || null,
+        persistenceReviewStartHookPath: installed
+          ? hookTarget.persistenceReviewStartHookPath
+          : hostConfig.persistenceReviewStartHookPath || null,
+        persistenceReviewAgentPath: installed
+          ? hookTarget.persistenceReviewAgentPath
+          : hostConfig.persistenceReviewAgentPath || null,
+        persistenceActivityPath: getPersistenceActivityPath(),
         hookScope: installed ? hookTarget.scope : hostConfig.hookScope || null,
         repositoryPath: installed ? hookTarget.repositoryPath : hostConfig.repositoryPath || null,
         installedSkills, installedAt: installed ? hostConfig.installedAt || null : null,
+      };
+    },
+    async uninstallHooks(options = {}) {
+      const hookTarget = await resolveClaudeHookTarget(options);
+      const removedFiles = [];
+      for (const hookPath of [
+        hookTarget.stopHookPath,
+        hookTarget.sessionStartHookPath,
+        hookTarget.persistenceReviewStartHookPath,
+        hookTarget.persistenceReviewAgentPath,
+      ]) {
+        if (await pathExists(hookPath)) {
+          await fs.unlink(hookPath);
+          removedFiles.push(hookPath);
+        }
+      }
+      const configResult = await removeManagedClaudeHooksConfig(hookTarget);
+      return {
+        host: "claude",
+        hooksConfigPath: hookTarget.hooksConfigPath,
+        hookScope: hookTarget.scope,
+        repositoryPath: hookTarget.repositoryPath,
+        removedFiles: [...removedFiles, ...configResult.removedFiles],
+        updatedFiles: configResult.updatedFiles,
+        unchangedFiles: configResult.unchangedFiles,
       };
     },
   };
@@ -883,11 +953,19 @@ async function isClaudeHostInstalled(hookTarget, skills) {
     }
   }
 
-  if (!(await pathExists(hookTarget.stopHookPath)) || !(await pathExists(hookTarget.hooksConfigPath))) {
-    return false;
+  for (const hostFile of [
+    hookTarget.stopHookPath,
+    hookTarget.sessionStartHookPath,
+    hookTarget.persistenceReviewStartHookPath,
+    hookTarget.persistenceReviewAgentPath,
+    hookTarget.hooksConfigPath,
+  ]) {
+    if (!(await pathExists(hostFile))) {
+      return false;
+    }
   }
 
-  return hasManagedClaudeStopHook(await readJsonIfExists(hookTarget.hooksConfigPath, "claude"), hookTarget);
+  return hasManagedClaudeLifecycleHooks(await readJsonIfExists(hookTarget.hooksConfigPath, "claude"), hookTarget);
 }
 
 async function isHermesHostInstalled(profile, skills) {
@@ -911,7 +989,18 @@ function renderOpenAIYaml(skill) {
   ].join("\n");
 }
 
-function renderCodexSessionStartHookScript(slaCliPath) {
+function renderCodexSessionStartHookScript(slaCliPath, options = {}) {
+  const hookEventName = options.hookEventName || "SessionStart";
+  const reviewSnapshotLines = options.includeParentTranscript
+    ? [
+        "const parentTranscriptPath = typeof payload.transcript_path === \"string\" && payload.transcript_path ? payload.transcript_path : null;",
+        "const reviewSnapshotContext = parentTranscriptPath",
+        "  ? `This is the SLA persistence-review child. Review only the parent-session transcript snapshot at ${parentTranscriptPath}; do not expose its contents or treat later session activity as evidence.`",
+        "  : \"This is the SLA persistence-review child. No parent-session transcript snapshot was supplied; do not make a persistence write without safely reviewable session evidence.\";",
+        "",
+      ]
+    : [];
+
   return [
     "#!/usr/bin/env node",
     "",
@@ -963,8 +1052,11 @@ function renderCodexSessionStartHookScript(slaCliPath) {
     "  \"Change SLA-managed data through sla commands rather than direct edits under ~/.sla.\",",
     "].join(\"\\n\");",
     "",
-    "const additionalContext = [policy, ...profiles.map((entry) => entry.renderedContext.trim())].join(\"\\n\\n\");",
-    "process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: \"SessionStart\", additionalContext } }) + \"\\n\");",
+    ...reviewSnapshotLines,
+    options.includeParentTranscript
+      ? "const additionalContext = [policy, ...profiles.map((entry) => entry.renderedContext.trim()), reviewSnapshotContext].join(\"\\n\\n\");"
+      : "const additionalContext = [policy, ...profiles.map((entry) => entry.renderedContext.trim())].join(\"\\n\\n\");",
+    `process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: ${JSON.stringify(hookEventName)}, additionalContext } }) + "\\n");`,
     "",
   ].join("\n");
 }
@@ -1186,7 +1278,47 @@ function renderCursorStopHookScript() {
 }
 
 function renderClaudeStopHookScript() {
-  return renderCodexStopHookScript();
+  return renderCodexStopHookScript().replace(
+    "spawn exactly one `sla-persistence-review` subagent now",
+    "use the Agent tool to dispatch exactly one `sla-persistence-review` custom subagent now",
+  );
+}
+
+function renderClaudeSessionStartHookScript(slaCliPath) {
+  return renderCodexSessionStartHookScript(slaCliPath);
+}
+
+function renderClaudePersistenceReviewStartHookScript(slaCliPath) {
+  return renderCodexSessionStartHookScript(slaCliPath, {
+    hookEventName: "SubagentStart",
+    includeParentTranscript: true,
+  });
+}
+
+function renderClaudePersistenceReviewAgent() {
+  const codexAgent = renderCodexPersistenceReviewAgent();
+  const opening = 'developer_instructions = """\n';
+  const closing = '\n"""\n';
+  const start = codexAgent.indexOf(opening);
+  const end = codexAgent.lastIndexOf(closing);
+  const instructions = codexAgent
+    .slice(start + opening.length, end)
+    .replace(
+      "Review only the forked session snapshot for durable SLA learning and lifecycle-qualified operational context.",
+      "Review only the parent-session transcript snapshot supplied by the matching SubagentStart hook for durable SLA learning and lifecycle-qualified operational context. Read that local snapshot only when it is explicitly supplied; otherwise make no persistence write.",
+    )
+    .replaceAll("forked session snapshot", "parent-session transcript snapshot");
+
+  return [
+    "---",
+    `name: ${CLAUDE_PERSISTENCE_REVIEW_AGENT}`,
+    "description: Dedicated SLA persistence-review subagent dispatched once when a Claude Code task completes.",
+    "tools: Bash, Read",
+    "---",
+    "",
+    instructions,
+    "",
+  ].join("\n");
 }
 
 async function writeCodexHooksConfig(hookTarget) {
@@ -1289,7 +1421,7 @@ async function writeCursorHooksConfig(hookTarget) {
 async function writeClaudeSettings(hookTarget) {
   const configPath = hookTarget.hooksConfigPath;
   const existing = (await readJsonIfExists(configPath, "claude")) || {};
-  const nextConfig = mergeClaudeStopHook(existing, hookTarget);
+  const nextConfig = mergeClaudeLifecycleHooks(existing, hookTarget);
   const serialized = `${JSON.stringify(nextConfig, null, 2)}\n`;
 
   if (!(await pathExists(configPath))) {
@@ -1302,6 +1434,43 @@ async function writeClaudeSettings(hookTarget) {
   }
   await writeFileAtomic(configPath, serialized);
   return { createdFiles: [], updatedFiles: [configPath], unchangedFiles: [] };
+}
+
+async function removeManagedClaudeHooksConfig(hookTarget) {
+  const configPath = hookTarget.hooksConfigPath;
+  if (!(await pathExists(configPath))) {
+    return { removedFiles: [], updatedFiles: [], unchangedFiles: [] };
+  }
+
+  const existing = await readJsonIfExists(configPath, "claude");
+  const hooks = isPlainObject(existing.hooks) ? { ...existing.hooks } : {};
+  const managedPredicates = {
+    Stop: isManagedClaudeStopHook,
+    SessionStart: isManagedClaudeSessionStartHook,
+    SubagentStart: isManagedClaudePersistenceReviewStartHook,
+  };
+
+  for (const [eventName, isManaged] of Object.entries(managedPredicates)) {
+    const entries = Array.isArray(hooks[eventName]) ? hooks[eventName].map(cloneHookEntry) : [];
+    const filtered = entries
+      .map((entry) => {
+        if (!Array.isArray(entry?.hooks)) return entry;
+        const remaining = entry.hooks.filter((hook) => !isManaged(hook));
+        return remaining.length === entry.hooks.length ? entry : { ...entry, hooks: remaining };
+      })
+      .filter((entry) => !Array.isArray(entry?.hooks) || entry.hooks.length > 0);
+    if (filtered.length > 0) hooks[eventName] = filtered;
+    else delete hooks[eventName];
+  }
+
+  const next = { ...existing, hooks };
+  const serialized = `${JSON.stringify(next, null, 2)}\n`;
+  const current = await fs.readFile(configPath, "utf8");
+  if (current === serialized) {
+    return { removedFiles: [], updatedFiles: [], unchangedFiles: [configPath] };
+  }
+  await writeFileAtomic(configPath, serialized);
+  return { removedFiles: [], updatedFiles: [configPath], unchangedFiles: [] };
 }
 
 async function ensureRepositoryCodexGitignore(repositoryPath) {
@@ -1504,31 +1673,61 @@ function hasManagedCursorStopHook(config, hookTarget) {
   return stopEntries.some((hook) => hook?.command === expectedCommand);
 }
 
-function mergeClaudeStopHook(config, hookTarget) {
+function mergeClaudeLifecycleHooks(config, hookTarget) {
   const hooks = isPlainObject(config.hooks) ? { ...config.hooks } : {};
-  const stopEntries = Array.isArray(hooks.Stop) ? hooks.Stop.map(cloneHookEntry) : [];
-  const managedCommand = renderClaudeStopHookCommand(hookTarget);
-  let found = false;
-
-  for (let index = 0; index < stopEntries.length; index += 1) {
-    const entry = stopEntries[index];
-    const innerHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
-    const hookIndex = innerHooks.findIndex((hook) => isManagedClaudeStopHook(hook));
-    if (hookIndex === -1) continue;
-    found = true;
-    const nextInnerHooks = [...innerHooks];
-    nextInnerHooks[hookIndex] = { type: "command", command: managedCommand, timeout: 30 };
-    stopEntries[index] = { ...entry, hooks: nextInnerHooks };
-  }
-  if (!found) stopEntries.push({ hooks: [{ type: "command", command: managedCommand, timeout: 30 }] });
-  hooks.Stop = stopEntries;
+  hooks.Stop = mergeClaudeHookEntries(
+    hooks.Stop,
+    isManagedClaudeStopHook,
+    { hooks: [{ type: "command", command: renderClaudeStopHookCommand(hookTarget), timeout: 30 }] },
+  );
+  hooks.SessionStart = mergeClaudeHookEntries(
+    hooks.SessionStart,
+    isManagedClaudeSessionStartHook,
+    { hooks: [{ type: "command", command: renderClaudeSessionStartHookCommand(hookTarget), timeout: 30 }] },
+  );
+  hooks.SubagentStart = mergeClaudeHookEntries(
+    hooks.SubagentStart,
+    isManagedClaudePersistenceReviewStartHook,
+    {
+      matcher: `^${CLAUDE_PERSISTENCE_REVIEW_AGENT}$`,
+      hooks: [{ type: "command", command: renderClaudePersistenceReviewStartHookCommand(hookTarget), timeout: 30 }],
+    },
+  );
   return { ...config, hooks };
 }
 
-function hasManagedClaudeStopHook(config, hookTarget) {
-  const expectedCommand = renderClaudeStopHookCommand(hookTarget);
-  return (Array.isArray(config?.hooks?.Stop) ? config.hooks.Stop : []).some((entry) =>
-    Array.isArray(entry?.hooks) && entry.hooks.some((hook) => hook?.type === "command" && hook?.command === expectedCommand),
+function mergeClaudeHookEntries(entries, isManaged, managedEntry) {
+  const nextEntries = Array.isArray(entries) ? entries.map(cloneHookEntry) : [];
+  let found = false;
+
+  for (let index = 0; index < nextEntries.length; index += 1) {
+    const entry = nextEntries[index];
+    const innerHooks = Array.isArray(entry?.hooks) ? entry.hooks : [];
+    const hookIndex = innerHooks.findIndex((hook) => isManaged(hook));
+    if (hookIndex === -1) continue;
+    found = true;
+    const nextInnerHooks = [...innerHooks];
+    nextInnerHooks[hookIndex] = managedEntry.hooks[0];
+    nextEntries[index] = {
+      ...entry,
+      ...(managedEntry.matcher ? { matcher: managedEntry.matcher } : {}),
+      hooks: nextInnerHooks,
+    };
+  }
+  if (!found) nextEntries.push(managedEntry);
+  return nextEntries;
+}
+
+function hasManagedClaudeLifecycleHooks(config, hookTarget) {
+  return [
+    ["Stop", renderClaudeStopHookCommand(hookTarget)],
+    ["SessionStart", renderClaudeSessionStartHookCommand(hookTarget)],
+    ["SubagentStart", renderClaudePersistenceReviewStartHookCommand(hookTarget)],
+  ].every(([eventName, expectedCommand]) =>
+    (Array.isArray(config?.hooks?.[eventName]) ? config.hooks[eventName] : []).some((entry) =>
+      Array.isArray(entry?.hooks) &&
+      entry.hooks.some((hook) => hook?.type === "command" && hook?.command === expectedCommand),
+    ),
   );
 }
 
@@ -1562,6 +1761,18 @@ function renderClaudeStopHookCommand(hookTarget) {
     : `node ${JSON.stringify(hookTarget.stopHookPath)}`;
 }
 
+function renderClaudeSessionStartHookCommand(hookTarget) {
+  return hookTarget.scope === "repository"
+    ? `node .claude/hooks/${CLAUDE_SESSION_START_HOOK_FILE}`
+    : `node ${JSON.stringify(hookTarget.sessionStartHookPath)}`;
+}
+
+function renderClaudePersistenceReviewStartHookCommand(hookTarget) {
+  return hookTarget.scope === "repository"
+    ? `node .claude/hooks/${CLAUDE_PERSISTENCE_REVIEW_START_HOOK_FILE}`
+    : `node ${JSON.stringify(hookTarget.persistenceReviewStartHookPath)}`;
+}
+
 function isManagedCodexStopHook(hook) {
   return (
     hook?.type === "command" &&
@@ -1584,6 +1795,18 @@ function isManagedCursorStopHook(hook) {
 
 function isManagedClaudeStopHook(hook) {
   return hook?.type === "command" && typeof hook.command === "string" && hook.command.includes(OPENAI_STYLE_STOP_HOOK_FILE);
+}
+
+function isManagedClaudeSessionStartHook(hook) {
+  return hook?.type === "command" && typeof hook.command === "string" && hook.command.includes(CLAUDE_SESSION_START_HOOK_FILE);
+}
+
+function isManagedClaudePersistenceReviewStartHook(hook) {
+  return (
+    hook?.type === "command" &&
+    typeof hook.command === "string" &&
+    hook.command.includes(CLAUDE_PERSISTENCE_REVIEW_START_HOOK_FILE)
+  );
 }
 
 function cloneHookEntry(entry) {
@@ -1690,14 +1913,22 @@ async function resolveClaudeHookTarget(options = {}) {
   if (!options.repository) {
     return {
       scope: "global", repositoryPath: null, hooksPath: getClaudeHooksPath(),
-      hooksConfigPath: getClaudeSettingsPath(), stopHookPath: getClaudeHookScriptPath(OPENAI_STYLE_STOP_HOOK_FILE),
+      hooksConfigPath: getClaudeSettingsPath(),
+      stopHookPath: getClaudeHookScriptPath(OPENAI_STYLE_STOP_HOOK_FILE),
+      sessionStartHookPath: getClaudeHookScriptPath(CLAUDE_SESSION_START_HOOK_FILE),
+      persistenceReviewStartHookPath: getClaudeHookScriptPath(CLAUDE_PERSISTENCE_REVIEW_START_HOOK_FILE),
+      persistenceReviewAgentPath: getClaudeCustomAgentPath(CLAUDE_PERSISTENCE_REVIEW_AGENT),
     };
   }
   const repositoryPath = await resolveRepositoryPath(options.repository);
   const hooksRoot = resolveClaudeHooksRoot(repositoryPath);
   return {
     scope: "repository", repositoryPath, hooksPath: `${hooksRoot}/hooks`,
-    hooksConfigPath: `${hooksRoot}/settings.json`, stopHookPath: `${hooksRoot}/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`,
+    hooksConfigPath: `${hooksRoot}/settings.json`,
+    stopHookPath: `${hooksRoot}/hooks/${OPENAI_STYLE_STOP_HOOK_FILE}`,
+    sessionStartHookPath: `${hooksRoot}/hooks/${CLAUDE_SESSION_START_HOOK_FILE}`,
+    persistenceReviewStartHookPath: `${hooksRoot}/hooks/${CLAUDE_PERSISTENCE_REVIEW_START_HOOK_FILE}`,
+    persistenceReviewAgentPath: `${hooksRoot}/agents/${CLAUDE_PERSISTENCE_REVIEW_AGENT}.md`,
   };
 }
 

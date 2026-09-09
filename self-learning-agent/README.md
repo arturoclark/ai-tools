@@ -247,10 +247,14 @@ Set `SLA_PERSISTENCE_DISPATCH_KEEP_TEMP=1` to retain those disposable directorie
 `sla host install claude` installs:
 
 - Claude Code skills under `~/.claude/skills/` (or under `CLAUDE_CONFIG_DIR/skills/` when set)
-- a managed stop-hook script under `~/.claude/hooks/` and an entry in `~/.claude/settings.json` by default
-- for `--repository`, the hook script and merged settings live in `<repository>/.claude/hooks/` and `<repository>/.claude/settings.json`
-- repository-local installs use the portable command `node .claude/hooks/sla-stop-hook.js`
+- a managed `sla-persistence-review` custom subagent under `~/.claude/agents/`, with the same conservative SLA memory, skill, reference, activity, and expiring-operational-context policy as the Codex child
+- managed `SessionStart`, `Stop`, and `SubagentStart` hook scripts under `~/.claude/hooks/` and merged entries in `~/.claude/settings.json` by default
+- the `Stop` hook blocks once and directs Claude to dispatch exactly one `sla-persistence-review` child; the recursion guard prevents redispatch
+- the matching `SubagentStart` hook injects active SLA profile context and the local parent-session transcript path, so Claude's named child can review the bounded session snapshot without receiving later activity
+- for `--repository`, the custom agent, hook scripts, and merged settings live in `<repository>/.claude/agents/`, `<repository>/.claude/hooks/`, and `<repository>/.claude/settings.json`
+- repository-local installs use portable commands under `.claude/hooks/`
 - with `--gitignore`, appends `.claude/` to an existing repository `.gitignore` when needed
+- `sla host uninstall-hooks claude` removes only SLA-managed lifecycle hooks and the persistence-review agent, preserving unrelated hooks and skills
 
 ## JSON Output
 
