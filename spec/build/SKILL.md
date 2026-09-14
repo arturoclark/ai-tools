@@ -18,22 +18,35 @@ For each requirement, use `~/.spec/<spec-slug>/`, where `<spec-slug>` is a short
 Maintain these human-readable artifacts as the work progresses:
 
 - `00-discovery.md` — working problem statement, confirmed facts, open questions, assumptions, risks, and approvals
-- `01-specification.md` — approved product specification and decisions
-- `02-issue-plan.md` — approved issue hierarchy, ordering, dependencies, and QA choice
+- `01-specification.md` — product specification and confirmed decisions
+- `02-issue-plan.md` — issue hierarchy, ordering, dependencies, and QA choice
 - `research.md` — sources, alternatives, findings, and unconfirmed recommendations when research was performed
 - `tracker/` — generated description/design files, dry-run output, and creation reports for the selected tracker
 
-Draft artifacts must identify their approval status. Do not overwrite a human-approved artifact; create a clearly named revision and return to the relevant approval gate.
+Every phase artifact must state its phase and status: `Draft`, `Ready for approval`, or `Approved`. Write or update the artifact before asking the human to approve that phase. Do not label an artifact `Approved` until the human has explicitly approved it.
+
+Do not begin a later phase, create its artifact, or prepare its tracker output until the preceding phase is approved and that approval is recorded. Do not overwrite a human-approved artifact; create a clearly named revision and return to that phase's approval gate.
 
 ## Core contract
 
 - Do not guess requirements, policy, user behavior, technical choices, ownership, estimates, or tracker details. Mark an unsupported statement as an **Open question**, **Assumption requiring confirmation**, or **Research finding**, as appropriate.
-- Do not create, edit, or close tracker issues until the human has completed every approval gate below and explicitly asks for creation.
+- Do not create, edit, or close tracker issues until discovery, specification, and issue-plan approval are recorded. The issue-plan approval is the human's authorization to create exactly the previewed issue graph; do not ask for or require a redundant creation approval.
 - Keep product intent and technical execution distinct. Product language explains the value and observable outcome; technical work describes the implementation needed to deliver it.
 - Treat acceptance criteria and failure paths as testable expected results, not promises about an unverified implementation.
 - Use local context first: the requirement, conversation, repository instructions, architecture, existing tests, current issues, and project documentation. Never alter the repository during discovery unless the human asks.
 
-## Run the discovery
+## Required phase sequence
+
+Follow this sequence exactly. A human may request changes at any point; if a change affects an approved earlier phase, create a revision and resume from that phase.
+
+1. **Discovery** — Create and maintain `00-discovery.md`. When it is complete enough to represent the problem, mark it `Ready for approval`, present it, and wait. After explicit confirmation, record it as `Approved`.
+2. **Specification** — Only after discovery is approved, create and maintain `01-specification.md` from confirmed discovery facts. Mark it `Ready for approval`, present it, and wait. After explicit confirmation, record it as `Approved`.
+3. **Issue plan** — Only after the specification is approved, create and maintain `02-issue-plan.md` and every required tracker-input artifact under `tracker/`. Run read-only tracker preflight and dry-run checks, then save their output before marking the issue plan `Ready for approval`. Present the plan, exact target, and creation preview; wait for explicit confirmation. After confirmation, record the plan as `Approved`.
+4. **Issue creation** — Only after the approved issue plan exists, create exactly the approved, previewed issues, hierarchy, and dependencies. Save the creation report under `tracker/`, verify the result, and report it to the human.
+
+The artifact that is awaiting approval must already exist and contain the complete work for its phase. Do not present an outline, promise later documents, or collect an approval that precedes the corresponding artifact.
+
+## Discovery phase
 
 Start by restating the supplied goal as a short **Working problem statement**, then identify what is known and unknown. Ask the smallest useful batch of questions. Continue collaboratively: the human may have only an end goal, and discovery may reveal further questions.
 
@@ -56,6 +69,8 @@ Maintain a compact discovery record with these headings:
 - Risks and dependencies
 - Research findings and sources
 
+When the discovery record is ready, set `00-discovery.md` to `Ready for approval` and use the **Discovery gate** below. Do not draft the specification until the human approves it.
+
 ## Research
 
 Inspect relevant local code and documentation before proposing technical approaches. Research the web when the human requests it, when current external facts materially affect the decision, or when comparing established approaches would improve the spec. Do not send confidential repository or business details to external search.
@@ -72,17 +87,21 @@ Do not delegate when the work is small, sequential, overlapping, or needs repeat
 
 ## Approval gates
 
-Use these gates in this order. State the gate and wait for an unambiguous human approval before proceeding.
+Use these gates in this order. State the gate and wait for unambiguous human approval. Record the approval in the already-created phase artifact before entering the next phase.
 
-1. **Discovery gate** — Present the working problem statement, confirmed facts, scope, unresolved questions, and any proposed research. Obtain confirmation that the discovery summary represents the intended problem.
-2. **Issue-plan gate** — Present the proposed hierarchy, issue types, dependencies, sequencing, acceptance criteria, technical work, and QA approach. Obtain approval of the issue plan.
-3. **Creation gate** — Show the tracker-specific dry run or equivalent preview and the exact target repository/project. Create issues only after the human explicitly authorizes the write.
+1. **Discovery gate** — `00-discovery.md` is `Ready for approval`. Present its working problem statement, confirmed facts, scope, unresolved questions, and proposed research. Obtain confirmation that it represents the intended problem; then mark it `Approved`.
+2. **Specification gate** — `01-specification.md` is `Ready for approval`. Present the full specification, including confirmed decisions, scope, non-goals, risks, and any remaining open questions. Obtain confirmation that it is correct; then mark it `Approved`.
+3. **Issue-plan gate** — `02-issue-plan.md` and its complete `tracker/` creation package are `Ready for approval`. Present the hierarchy, issue types, dependencies, sequencing, acceptance criteria, technical work, QA approach, exact tracker target, and dry-run preview. Obtain confirmation of the plan; then mark it `Approved` and create exactly that graph.
 
-If feedback invalidates an approved decision, return to the appropriate earlier gate. Never silently revise approved scope.
+If feedback invalidates an approved decision, return to the appropriate earlier gate and create a revision. Never silently revise approved scope or treat an approval of one phase as approval of a later phase.
 
-## Build the specification and issue plan
+## Specification phase
 
-After discovery approval, create a human-readable specification before tracker mutation. Read [the issue model](references/issue-model.md) when drafting it.
+After discovery approval, read [the issue model](references/issue-model.md) and create a human-readable `01-specification.md` before planning tracker work. Include only confirmed facts and decisions; keep unresolved items visibly open. Complete the specification artifact, mark it `Ready for approval`, and pass the Specification gate before creating `02-issue-plan.md` or any tracker artifact.
+
+## Issue-plan phase
+
+After specification approval, create `02-issue-plan.md`, then prepare every selected-tracker input needed to create the plan. The plan and tracker package must be complete before the Issue-plan gate.
 
 Use an epic only when it groups multiple independently deliverable outcomes, a meaningful release slice, or a cross-cutting goal. Otherwise start with a product story or bug.
 
@@ -104,7 +123,7 @@ Create a linked QA task only if the human opts in. Ask where the tests should li
 
 Order work by real blocking relationships, not merely preferred reading order. Foundation or decision work that blocks a story comes first; a story blocks its QA task; unrelated work stays parallel. Explain the dependency graph in plain language before creating it.
 
-Every issue plan must declare a confirmed tracker identity and delivery graph before its issue-plan gate. The first title bracket is the confirmed repository name (for example, `ZIIPCO` or `AI-TOOLS`), rendered uppercase; it is not the Beads database target or a directory-derived identifier. Do not derive either name or key from a directory name without human confirmation:
+Every issue plan must declare a confirmed tracker identity and delivery graph before it can be marked `Ready for approval`. The first title bracket is the confirmed repository name (for example, `ZIIPCO` or `AI-TOOLS`), rendered uppercase; it is not the Beads database target or a directory-derived identifier. Do not derive either name or key from a directory name without human confirmation:
 
 ```md
 Repository name: <UPPERCASE-REPOSITORY-NAME>
@@ -121,12 +140,12 @@ Spec key: <stable-lowercase-spec-key>
 
 ## Tracker selection
 
-Ask for the issue tracker on first use unless it is already confirmed. Select the matching `spec:{tracker}` adapter. For Beads, load and follow the sibling `spec:beads` skill at `../beads/SKILL.md` before reading or writing tracker state.
+Ask for the issue tracker on first use unless it is already confirmed. Select the matching `spec:{tracker}` adapter during the issue-plan phase. Use it to produce the complete read-only creation package—generated descriptions/design files, duplicate checks, dry-run output, and exact target preview—before the Issue-plan gate. For Beads, load and follow the sibling `spec:beads` skill at `../beads/SKILL.md` before reading or writing tracker state.
 
 Keep the tracker adapter separate from the product specification: the same approved plan must remain portable to future tracker skills.
 
 ## Handoff
 
-Before creation, provide a concise plan containing the approval status, confirmed repository name and spec key, tracker target, ordered issues, dependencies, open questions, and QA decision. After creation, report the created issue IDs, parent/child links, blocking links, and anything intentionally not created.
+At the Issue-plan gate, provide a concise creation-ready handoff containing the approval status of all three phase artifacts, confirmed repository name and spec key, tracker target, ordered issues, dependencies, open questions, QA decision, and the saved dry-run preview. After creation, save and report the created issue IDs, parent/child links, blocking links, and anything intentionally not created.
 
 Never claim that an issue graph, test plan, or implementation is complete without verifying the relevant result.

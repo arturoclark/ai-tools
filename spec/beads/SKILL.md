@@ -5,7 +5,7 @@ description: Translate an approved spec issue plan into a safe, validated Beads 
 
 # spec:beads
 
-Use Beads only after `spec:build` has passed its discovery and issue-plan gates. `spec:beads` is the human-facing name; its portable skill identifier is `spec-beads`.
+Use Beads read-only during `spec:build`'s issue-plan phase only after its discovery and specification gates have passed. Create or change Beads issues only after its issue-plan gate has passed and `02-issue-plan.md` is recorded as approved. `spec:beads` is the human-facing name; its portable skill identifier is `spec-beads`.
 
 This adapter is based on the locally verified `bd` 1.2.2 CLI. Beads evolves, so run `bd <command> --help` before relying on a command whose flags matter to the current task.
 
@@ -15,7 +15,7 @@ This adapter is based on the locally verified `bd` 1.2.2 CLI. Beads evolves, so 
 2. Run read-only context checks such as `bd version`, `bd prime`, `bd list --json`, and `bd ready --json` in that target.
 3. Detect likely duplicate or overlapping issues before proposing creation. Report candidates to the human; do not automatically merge, close, or relate them.
 4. Do not run `bd init`, `bd setup`, `bd hooks`, `bd migrate`, sync, or update commands unless the human explicitly asks. Those operations can change repository or tracker configuration.
-5. Preserve the approved product-plan content. Tracker fields are an encoding of the plan, not permission to alter it.
+5. Preserve the approved discovery and specification content and the current issue-plan draft. Tracker fields are an encoding of the plan, not permission to alter it.
 6. Confirm the issue-plan's repository name and spec key. The repository name is the uppercase first bracket in the title, not the filesystem location or Beads database target. Do not invent either from the filesystem or target database.
 
 ## Parallel review, single-writer creation
@@ -26,7 +26,7 @@ Each subagent must receive a bounded question and target scope, then return evid
 
 Do not create subagents for a small issue graph or closely coupled checks; the single-writer workflow is deliberately sequential once creation begins.
 
-## Map the approved plan to Beads
+## Map the issue plan to Beads
 
 Beads supports `epic`, `feature`, `task`, `bug`, `chore`, and `decision` issue types. It has no native `story` or `qa` type. Use this mapping unless the human specifies a different team convention:
 
@@ -42,11 +42,11 @@ Beads supports `epic`, `feature`, `task`, `bug`, `chore`, and `decision` issue t
 
 Make every feature self-contained in `--description`: include the product outcome, scope and non-goals, **Suggested technical implementation**, migration or operational considerations, and test expectations. The suggested-implementation section may include illustrative code, pseudocode, or patch fragments when useful; make clear that these examples are not the final implementation contract. Place acceptance criteria in `--acceptance`. `--design` may hold supplementary design detail, but must not be the only place required technical work appears because tracker views may not show it prominently. Use `--parent` to create hierarchy. A parent relation does not replace a blocking dependency.
 
-Before the preview, reconcile each approved technical item: embed ordinary implementation work in its parent feature description, or create a `task` only when the approved plan explicitly calls for standalone tracking or identifies a separate cross-cutting deliverable. Do not silently turn embedded work into separate tasks or hide required work only in `--design`.
+Before the preview, reconcile each planned technical item: embed ordinary implementation work in its parent feature description, or create a `task` only when the plan explicitly calls for standalone tracking or identifies a separate cross-cutting deliverable. Do not silently turn embedded work into separate tasks or hide required work only in `--design`.
 
 ## Identity, titles, and IDs
 
-The approved issue-plan table is required. Its `Repository name`, `Spec key`, and per-item `Key` determine each Beads title exactly. The first bracket is the uppercase repository name:
+The issue-plan table is required. Its `Repository name`, `Spec key`, and per-item `Key` determine each Beads title exactly. The first bracket is the uppercase repository name:
 
 ```text
 [<REPOSITORY-NAME>][<spec-key>][<KEY>] <approved issue title>
@@ -67,7 +67,7 @@ Pass the computed ID with `bd create --id <DEV-####>`. After creation, verify th
 
 ## Epic delivery sequence
 
-Every epic description must include these sections, populated from the approved issue-plan table before previewing creation:
+Every epic description must include these sections, populated from the issue-plan table before previewing creation:
 
 ```md
 ## Delivery sequence
@@ -82,18 +82,24 @@ Every epic description must include these sections, populated from the approved 
 
 List every child issue in its real delivery sequence, including approved standalone tasks or QA work when applicable. State only actual blockers in **Blocking relationships**; write `- None.` when there are no blocking relationships. Use the stable plan keys rather than future Beads IDs, which do not exist while the epic description is authored. The epic narrative does not replace the actual `bd dep add` links.
 
-## Preview, create, and wire
+## Prepare, approve, create, and wire
 
-Always perform these actions in sequence:
+Keep the read-only preparation and the write strictly separate.
+
+Before the issue-plan gate, while `02-issue-plan.md` is still a draft:
 
 1. Render the proposed graph in conversation: repository name, spec key, plan key, exact `DEV-####` ID, exact title, type, parent, dependencies, labels, and QA links.
-2. Preview each planned creation with its explicit `--id DEV-####` and `bd create ... --dry-run`. For a larger graph, use Beads' approved batch/graph input only after validating its current CLI help and showing the generated input to the human.
-3. Ask for the creation-gate approval, naming the exact target.
-4. Save generated multi-line issue bodies, dry-run output, and the creation report in the active `~/.spec/<spec-slug>/tracker/` workspace. Do not overwrite an approved artifact.
+2. Save generated multi-line issue bodies and design files in `~/.spec/<spec-slug>/tracker/`, then preview every planned creation with its explicit `--id DEV-####` and `bd create ... --dry-run`. For a larger graph, use Beads' approved batch/graph input only after validating its current CLI help and showing the generated input to the human.
+3. Save dry-run output and the exact-target preview beside the generated inputs. The complete package must exist before the plan is marked `Ready for approval`.
+4. Do not create, update, close, label, or link any issue at this stage.
+
+After the human approves the issue plan, verify that the approved plan and saved preview still match. That approval authorizes the following writes; do not ask for a separate creation gate:
+
 5. Create parent issues before children and capture each returned ID. Use `--json` or `--silent` when reliable ID capture is needed.
 6. Add only approved dependencies. In Beads, `bd dep add <blocked-id> <blocker-id>` means the first issue depends on the second, so the second must be completed first.
 7. Verify every created item with `bd show <id>` and inspect the graph with `bd dep tree <id>` or equivalent read-only commands.
 8. Run `bd dep cycles` after wiring dependencies. Resolve nothing automatically if a cycle or mismatch appears; report it to the human.
+9. Save the creation report in the active `~/.spec/<spec-slug>/tracker/` workspace. Do not overwrite an approved artifact.
 
 Keep issue creation repeatable: if a command fails midway, inspect the current tracker state before retrying. Never blindly rerun a batch create.
 

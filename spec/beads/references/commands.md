@@ -36,7 +36,7 @@ bd create "<title>" \
   --dry-run
 ```
 
-Replace `DEV-0000` with the next unused four-digit `DEV-####` ID, calculated from the greatest existing exact `DEV-####` ID in the confirmed target. Remove `--dry-run` only after the human's explicit creation approval. Prefer a body or design file for multi-line descriptions when the current environment makes shell quoting unsafe. Do not use `--force` to bypass an ID-prefix mismatch. `bd create` also supports `--body-file`, `--design-file`, `--labels`, `--metadata`, `--spec-id`, `--external-ref`, `--repo`, `--json`, and `--silent`.
+Replace `DEV-0000` with the next unused four-digit `DEV-####` ID, calculated from the greatest existing exact `DEV-####` ID in the confirmed target. Remove `--dry-run` only after the human has approved the issue plan and that approval is recorded in `02-issue-plan.md`. Prefer a body or design file for multi-line descriptions when the current environment makes shell quoting unsafe. Do not use `--force` to bypass an ID-prefix mismatch. `bd create` also supports `--body-file`, `--design-file`, `--labels`, `--metadata`, `--spec-id`, `--external-ref`, `--repo`, `--json`, and `--silent`.
 
 ## Dependencies
 

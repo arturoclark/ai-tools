@@ -174,7 +174,7 @@ Use the provider's documented location for a directory containing `SKILL.md`, th
 
 ```md
 This project uses the `spec-build`, `spec-beads`, and `spec-implement` skills.
-Use `bd` only after the human approves the relevant discovery, issue-plan, and creation gates.
+Use `bd` read-only only after the human approves discovery and specification. Create or modify issues only after the human approves the prepared issue plan; no separate creation gate is required.
 Set `BEADS_DIR` to the confirmed `.beads` directory before reading an implementation issue.
 ```
 
