@@ -1,9 +1,25 @@
 ---
 name: plan
-description: Create repo-local implementation plans for features, refactors, migrations, and debugging work. Use when the user asks for a plan, wants a feature broken into verifiable parts, wants execution deferred until after planning, or needs a plan that includes frontend and backend verification, worktree branch rules, SLA profile handling, and repo test coverage.
+description: Create repo-local implementation plans for features, refactors, migrations, and debugging work. Use when the user asks for a plan, wants a feature broken into verifiable parts, or wants execution deferred until after planning.
 ---
 
 # Plan
+
+## Installation
+
+### Plan directories
+
+General plan directory:
+
+Repository-specific plan directories:
+
+Before using this skill, use the configured directory that applies to the repository. More than one directory may be configured: one general directory, repository-specific directories, or both.
+
+If neither a configured directory nor a plan location in the current invocation is available, ask this exact question:
+
+> Where should plan files be stored? You may provide one general directory, repository-specific directories, or both.
+
+When the human answers this installation question, record the selected general and/or repository-specific directory in the blank fields above for future uses. If the human provides a location as part of a specific plan invocation, use it only for that plan; do not add it to this skill file.
 
 ## Overview
 
@@ -11,78 +27,72 @@ Create a planning artifact only. Do not implement code, modify product files, or
 
 If a required fact is missing and cannot be discovered from the repo or the current conversation, do not guess. Say: `I don't know, help me get more context`.
 
-## Planning Mode
+## Invocation Mode and Question Collection
 
-For the current turn:
+At the start of every invocation, preserve the current session mode and try to switch to the session's dedicated plan mode, if one exists. Use that mode's native question feature to collect every required question, including any missing installation question and other information needed to avoid guessing.
+
+After submitting the questions, restore the previous mode. If the native question interaction must remain active until answers arrive, restore the previous mode immediately after the answers return. If the previous mode was edit mode, return to edit mode. Do not leave the session in plan mode solely because this skill was invoked.
+
+If the session cannot switch to plan mode or does not offer a native question feature, ask the required questions in a normal assistant response and wait for the human to send a new prompt with the answers. Do not inspect the repository, create a plan, or take other planning actions until that answer prompt arrives.
+
+For the current turn after question collection:
 
 - Plan only.
 - Inspect the repo with read-only commands as needed.
 - Do not edit app code, tests, configs, or docs outside the plan file.
 - Do not create branches, worktrees, commits, or pull requests.
-- Do not invent repo structure, test paths, branch names, or SLA profiles that are not in context.
+- Do not invent repo structure, test paths, branch names, or test workflows that are not in context.
 
-If the runtime supports a dedicated plan mode, use it. Otherwise, follow this skill as the planning contract.
+## Required Questions
+
+Ask these exact questions, in this order, on every invocation, even if related details appear in the repo or current conversation:
+
+> Should this plan use regular branches or worktrees?
+
+> Besides unit tests, where should this plan be tested?
+
+Record the answers in the plan. The second answer establishes the implementation checkout convention. The third establishes the additional test environments, flows, systems, or QA process that the plan must cover; it does not replace unit-test planning.
+
+If an answer is not supplied, do not assume it from the current branch or repository conventions. Wait for the human's answer before continuing.
 
 ## What To Discover First
 
 Before writing the plan, gather only the context needed to make the plan accurate:
 
 1. Identify the repo root and current branch.
-2. Check whether the repo already has a planning convention such as `plans/`, `docs/plans/`, or similar.
+2. Use the configured plan directory, or the plan location supplied in the invocation.
 3. Check which repo test suites already exist, such as unit, integration, e2e, Playwright, Cypress, or other documented automated test workflows.
-4. Check whether the user already provided:
-   - the feature goal
-   - the base branch to branch worktrees from
-   - SLA profiles for implementation work
-   - the relevant test commands, suites, or directories if they are not obvious
+4. Check whether the user already provided the feature goal, base branch, relevant test commands, suites, directories, and affected user flows.
 
-Ask only for missing information that is required to avoid guessing. Keep questions short and concrete. When asking about options, explain each option in natural language.
-
-## Required Questions
-
-Ask these when they are not already clear from context:
+Ask only for missing information that is required to avoid guessing. Keep questions short and concrete.
 
 ### Base branch
 
-Ask which branch each part worktree should branch from. Record both:
+Ask which branch implementation branches or worktrees should branch from when it is not already clear. Record both when supplied:
 
 - `Base branch`: the exact branch name
 - `Base source`: where that branch should be pulled from, if the user specifies a remote or source branch
 
 Do not default this from the current branch unless the user explicitly tells you to.
 
-### SLA profiles
+## Tests
 
-Ask whether the user wants to define SLA profiles now for implementing plan parts.
-
-If the user provides profiles, record the exact values in the plan and instruct later implementers to use the `sla-use-profile` skill to load each recorded profile before starting the relevant work.
-
-If the user does not provide profiles during planning, record that they must be requested at implementation time before work starts on each part, and that the `sla-use-profile` skill must be used once the profile is known.
-
-### Tests
-
-If the repo does not make the relevant test setup obvious, ask the user which test workflow should be used for this plan.
-
-Record the test context in the plan:
+Use the answer to the required testing question together with repo discovery to determine the test strategy. Record:
 
 - exact test commands or suites when known
-- tests exist but exact commands still need confirmation
-- new tests must be created as part of implementation
-- test workflow must be requested before implementation
+- additional test environment, QA flow, or system to use besides unit tests
+- tests that need to be created as part of implementation
+- test workflow that still needs confirmation
 
 ## Where To Save The Plan
 
-Save the markdown file inside the repo in the most established planning location you can verify:
+Save the markdown file in the applicable configured plan directory, unless the current invocation specifies another location. Do not discover, infer, or create a fallback planning directory.
 
-1. Use an existing repo `plans/` directory if present.
-2. Otherwise use an existing `docs/plans/` directory if present.
-3. Otherwise create `plans/` at the repo root and place the plan there.
+Give every plan its own directory and use this exact path shape:
 
-Use a filename in this shape:
+`<plan-directory>/<plan-slug>/<plan-slug>-YYYY-MM-DD.plan.md`
 
-`YYYY-MM-DD-<plan-slug>.plan.md`
-
-The slug should be short, stable, and feature-focused.
+The slug should be short, stable, and feature-focused. Create the `<plan-slug>/` directory as part of saving the plan.
 
 ## Plan Structure
 
@@ -101,51 +111,47 @@ Every plan must use this structure.
 - Current branch:
 - Base branch:
 - Base source:
-- Implementation SLA profile(s):
+- Checkout convention: Regular branches | Worktrees
+- Additional testing location/process:
 - Test strategy/status:
 
-## Worktree branch convention
+## Branch or worktree convention
 
 ## Parts
 
 ### Part 1: <Name>
 Status: Pending
 Completed at:
-Worktree branch:
+Implementation branch or worktree:
 
 #### What to achieve
+
+#### Acceptance criteria
 
 #### Technical details
 
 #### Expected results
 
 #### Verification
-• Frontend
-1. ...
-   Expected result: ...
 
-• Backend
-1. ...
-   Expected result: ...
+##### Tests
+
+#### Actual implementation and changes
 
 #### Completion protocol
-
-#### Tests to add or update
 
 ## Open questions
 ```
 
-## Worktree Branch Convention
+## Branch or Worktree Convention
 
-For each part, assign a planned worktree branch name using:
+For each part, assign a planned implementation branch or worktree name using:
 
 `<plan-slug>-part-<NN>`
 
-Use a two-digit part number such as `01`, `02`, `03`.
+Use a two-digit part number such as `01`, `02`, `03`. Only add the date suffix `-YYYYMMDD` if a collision is likely or the repo already uses dated branch names.
 
-Only add the date suffix `-YYYYMMDD` if a collision is likely or the repo already uses dated branch names.
-
-Record the exact planned branch name for every part inside the plan.
+Record the exact planned name for every part and use it according to the checkout convention selected by the human.
 
 ## How To Break The Feature Down
 
@@ -164,6 +170,14 @@ Use these rules:
 
 Write a natural-language description of the outcome for that part. Focus on what the system will be able to do after the part is complete.
 
+### Acceptance criteria
+
+Describe the product outcomes and all development needed for the part in product language. Write one or more criteria in this form:
+
+`As a <subject>, I want <feature or outcome> so that <value>.`
+
+These criteria must state what a user, operator, or system needs to achieve, not the implementation mechanism.
+
 ### Technical details
 
 Write the implementation guidance with enough detail for an agent to execute accurately. Include:
@@ -171,7 +185,7 @@ Write the implementation guidance with enough detail for an agent to execute acc
 - likely files and modules to inspect or edit
 - interfaces, data flow, and control flow changes
 - migrations, generators, RPC surfaces, schemas, or contracts if relevant
-- tests that should be added or updated, including unit, integration, e2e, or other repo-native automated coverage that fits the part
+- automated tests that should be added or updated, including unit, integration, e2e, or other repo-native coverage that fits the part
 - observability, logging, or operational details if they matter
 
 Be precise. This section is primarily for implementers and agents.
@@ -182,13 +196,9 @@ Describe in natural language what should be true when the part is finished. This
 
 ### Verification
 
-Write a step-by-step verification section separated into frontend and backend flows when both apply.
+Write a step-by-step verification section separated into frontend and backend flows when both apply. It must include the human-visible checks and the test work for this part.
 
-The verification steps must explicitly include the tests that will be created or updated for that part.
-Each part must include, in order when applicable, a step for creating or updating the test coverage and a step for running that coverage.
-The automated tests must align with the same step-by-step behaviors described in `Verification`. If a human is expected to verify a behavior manually, the planned tests should cover that same behavior in automated form when feasible.
-
-Format it exactly as readable numbered steps with inline expected results, for example:
+Format the flow as readable numbered steps with inline expected results, for example:
 
 ```md
 • Frontend
@@ -202,51 +212,48 @@ Format it exactly as readable numbered steps with inline expected results, for e
 
 3. Run the focused test file for this part.
    Expected result: the new and existing tests pass.
-
-4. Run the end-to-end or integration coverage for this part, if applicable.
-   Expected result: the user-facing flow passes without regressions.
 ```
 
 Rules:
 
-- Use natural language.
-- Make each step observable by a human or agent.
+- Use natural language and make each step observable by a human or agent.
 - Include the expected result directly after the step it validates.
-- Include explicit test-creation or test-update work in the steps when the part requires new coverage.
-- Do not leave test work implied. The verification sequence must say what test will be added or changed, then say how it will be run.
-- The automated tests must cover the same behaviors the human verification steps are checking, translated into repo-native test assertions and flows.
-- Name the relevant test suite, file, or command whenever it can be discovered from context.
-- Separate frontend and backend sections when both exist.
-- If only one side applies, omit the other instead of filling it with placeholders.
+- Name the relevant suite, file, command, environment, or QA process whenever it can be discovered from context.
+- Separate frontend and backend sections when both exist. If only one applies, omit the other.
+- Cover the additional testing location or process selected by the human, in addition to unit tests.
 
-## Completion Protocol
+#### Tests
 
-Every part must include a completion protocol that future implementers will follow after finishing the part:
+Within `Verification`, describe all test development for the part in product language. Use one or more criteria in this form:
+
+`As a QA developer, I want to verify <behavior and conditions> so that <user or system outcome> remains reliable.`
+
+For every criterion, specify the test level or process, the behavior to exercise, and the expected result. Include:
+
+- new or updated coverage for the part's acceptance criteria
+- the command, suite, environment, or QA flow that proves it when known
+- regression coverage for affected pre-existing flows, including changes to old code
+
+The tests must be descriptive enough for an implementer to know what to verify, and must correspond directly to the `Verification` flow.
+
+### Actual implementation and changes
+
+Complete this section during implementation. Describe what was actually implemented, how it relates to the planned technical details, and any deviations. Also record additional changes requested or identified during human code review, with their reason and impact.
+
+Do not pre-fill this section with speculative implementation details.
+
+### Completion protocol
+
+Every part must include this completion protocol for future implementers:
 
 1. Mark the part as done with the device date and time.
-2. Re-check the `Verification` and `Expected results` sections against the actual implementation.
-3. If anything changed, strike through the outdated text, add a short reason, and add the corrected text directly in the same section.
-4. If the part has an SLA profile assigned in the plan, use the `sla-use-profile` skill to load that profile before continuing implementation or verification work.
-5. Create or update the tests described for that part.
-6. Run the relevant test commands and record the result in the plan.
+2. Re-check the `Acceptance criteria`, `Verification`, and `Expected results` sections against the actual implementation.
+3. Complete `Actual implementation and changes`, including deviations and human code-review changes.
+4. If anything changed, strike through the outdated text, add a short reason, and add the corrected text directly in the same section.
+5. Create or update the tests described in `Verification > Tests`.
+6. Run the relevant test commands and the additional testing process, then record the result in the plan.
 
 Write this protocol into the plan, not just into the surrounding explanation.
-
-## Test Planning Rules
-
-Every part must include a `Tests to add or update` section.
-
-Use these rules:
-
-- Describe the concrete automated coverage that should be added or updated for the part.
-- Make the planned automated coverage correspond directly to the manual verification steps for that part.
-- Prefer repo-native tests such as unit, integration, API, e2e, or other existing test frameworks.
-- When `Verification` lists a step-by-step user or system flow, the test plan should cover that same flow at the appropriate level of automation.
-- The planned tests must match the specific part being implemented so they remain useful as later regression coverage.
-- If the repo has no obvious existing test setup, record that the implementer must confirm the intended test workflow before implementation.
-- If the user explicitly declines test creation, record that clearly in the plan.
-
-Do not pretend a test suite exists when it cannot be verified.
 
 ## Writing Open Questions
 
@@ -255,8 +262,8 @@ Use `Open questions` only for unresolved facts that block accurate execution lat
 Examples:
 
 - missing base branch confirmation
+- missing additional testing location or process
 - missing test workflow confirmation
-- missing SLA profile assignments
 - unresolved dependency or environment prerequisite
 
 Do not create fake open questions to appear thorough.
@@ -268,12 +275,12 @@ The plan should let another agent execute without guessing.
 Before saving, check that:
 
 - each part has a verifiable outcome
-- each part includes `What to achieve`, `Technical details`, `Expected results`, `Verification`, `Completion protocol`, and `Tests to add or update`
-- branch naming is recorded for each part
-- base branch and base source are recorded, or explicitly listed as an open question
-- SLA profile handling is recorded
-- test handling is recorded
-- the plan file path is inside the repo
+- each part includes `What to achieve`, `Acceptance criteria`, `Technical details`, `Expected results`, `Verification`, `Verification > Tests`, `Actual implementation and changes`, and `Completion protocol`
+- the acceptance criteria and test criteria use the required product-language forms
+- the planned branch or worktree name is recorded for each part
+- the checkout convention, base branch, and base source are recorded, or explicitly listed as open questions
+- unit-test and additional-test handling are recorded
+- the plan file uses its own `<plan-slug>/` directory and the required filename shape
 
 ## Final Response
 
