@@ -31,6 +31,8 @@ If a required fact is missing and cannot be discovered from the repo or the curr
 
 At the start of every invocation, preserve the current session mode and try to switch to the session's dedicated plan mode, if one exists. Use that mode's native question feature to collect every required question, including any missing installation question and other information needed to avoid guessing.
 
+Write every question in clear, human-readable product language. Do not use acronyms; spell out the meaning in plain words instead.
+
 After submitting the questions, restore the previous mode. If the native question interaction must remain active until answers arrive, restore the previous mode immediately after the answers return. If the previous mode was edit mode, return to edit mode. Do not leave the session in plan mode solely because this skill was invoked.
 
 If the session cannot switch to plan mode or does not offer a native question feature, ask the required questions in a normal assistant response and wait for the human to send a new prompt with the answers. Do not inspect the repository, create a plan, or take other planning actions until that answer prompt arrives.
@@ -90,9 +92,9 @@ Save the markdown file in the applicable configured plan directory, unless the c
 
 Give every plan its own directory and use this exact path shape:
 
-`<plan-directory>/<plan-slug>/<plan-slug>-YYYY-MM-DD.plan.md`
+`<plan-directory>/<plan-slug>/plan.md`
 
-The slug should be short, stable, and feature-focused. Create the `<plan-slug>/` directory as part of saving the plan.
+The slug should be short, stable, and feature-focused. Create the `<plan-slug>/` directory as part of saving the plan. Store the plan's creation date inside the plan, not in its filename.
 
 ## Plan Structure
 
@@ -108,6 +110,7 @@ Every plan must use this structure.
 ## Execution context
 - Repo root:
 - Plan file:
+- Created on: YYYY-MM-DD
 - Current branch:
 - Base branch:
 - Base source:
@@ -142,6 +145,8 @@ Implementation branch or worktree:
 
 ## Open questions
 ```
+
+Set `Created on` to the plan's actual creation date using `YYYY-MM-DD` when the plan is saved.
 
 ## Branch or Worktree Convention
 
@@ -280,7 +285,8 @@ Before saving, check that:
 - the planned branch or worktree name is recorded for each part
 - the checkout convention, base branch, and base source are recorded, or explicitly listed as open questions
 - unit-test and additional-test handling are recorded
-- the plan file uses its own `<plan-slug>/` directory and the required filename shape
+- the plan file uses its own `<plan-slug>/` directory and is named `plan.md`
+- the execution context records the plan's creation date
 
 ## Final Response
 
