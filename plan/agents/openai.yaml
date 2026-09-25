@@ -1,4 +1,4 @@
 interface:
   display_name: "Plan"
   short_description: "Create structured implementation plans"
-  default_prompt: "Use $plan to turn this feature request into a structured implementation plan with phased verification and harness coverage."
+  default_prompt: "Use $plan to discover this requirement into a researched specification, then turn it into a structured implementation plan with phased verification and harness coverage."

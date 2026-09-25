@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Discovery"
+  short_description: "Turn uncertain requirements into a grounded specification"
+  default_prompt: "Use $plan-discovery to turn this idea or requirement into a researched, adaptive specification that is ready for implementation planning."

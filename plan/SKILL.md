@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Create repo-local implementation plans for features, refactors, migrations, and debugging work. Use when the user asks for a plan, wants a feature broken into verifiable parts, or wants execution deferred until after planning.
+description: Create repo-local implementation plans for features, refactors, migrations, and debugging work after mandatory adaptive requirement discovery. Use when the user asks for a plan, wants a feature broken into verifiable parts, or wants execution deferred until after planning.
 ---
 
 # Plan
@@ -27,9 +27,17 @@ Create a planning artifact only. Do not implement code, modify product files, or
 
 If a required fact is missing and cannot be discovered from the repo or the current conversation, do not guess. Say: `I don't know, help me get more context`.
 
-## Invocation Mode and Question Collection
+## Mandatory Discovery Prerequisite
 
-At the start of every invocation, preserve the current session mode and try to switch to the session's dedicated plan mode, if one exists. Use that mode's native question feature to collect every required question, including any missing installation question and other information needed to avoid guessing.
+Before doing any plan-specific question collection, repository inspection, or writing `plan.md`, read and invoke the sibling [Plan Discovery skill](plan-discovery/SKILL.md). Invoke it on every use of this skill so it creates, resumes, validates, or refreshes the matching `discovery.plan.md`.
+
+Plan Discovery owns product discovery, adaptive questions, local inspection, web research, evidence dates, and the `discovery.plan.md` artifact. It uses the same plan directory and plan slug as this skill. Do not duplicate its product questionnaire or repeat its research unless a plan-specific uncertainty remains.
+
+Do not create or update `plan.md` until the matching discovery artifact has `Ready for plan: Yes`. If discovery reports a blocker, surface the exact question to the human and wait. Never turn a blocking unknown into a plan assumption.
+
+## Plan-Specific Invocation Mode and Question Collection
+
+After Plan Discovery is ready for planning, preserve the current session mode and try to switch to the session's dedicated plan mode, if one exists. Use that mode's native question feature to collect every required plan-specific question, including any missing installation question and other information needed to avoid guessing.
 
 Write every question in clear, human-readable product language. Do not use acronyms; spell out the meaning in plain words instead.
 
@@ -59,12 +67,14 @@ If an answer is not supplied, do not assume it from the current branch or reposi
 
 ## What To Discover First
 
-Before writing the plan, gather only the context needed to make the plan accurate:
+Before writing the plan, use the ready `discovery.plan.md` as the source of product context and gather only additional plan-specific context needed to make the plan accurate:
 
 1. Identify the repo root and current branch.
 2. Use the configured plan directory, or the plan location supplied in the invocation.
 3. Check which repo test suites already exist, such as unit, integration, e2e, Playwright, Cypress, or other documented automated test workflows.
 4. Check whether the user already provided the feature goal, base branch, relevant test commands, suites, directories, and affected user flows.
+
+Record the matching discovery artifact path in the plan and use its confirmed scope, acceptance criteria, risks, dependencies, and verification expectations. Do not treat a discovery-log entry as current truth when the canonical `Current specification` says otherwise.
 
 Ask only for missing information that is required to avoid guessing. Keep questions short and concrete.
 
@@ -110,6 +120,7 @@ Every plan must use this structure.
 ## Execution context
 - Repo root:
 - Plan file:
+- Discovery specification:
 - Created on: YYYY-MM-DD
 - Current branch:
 - Base branch:
