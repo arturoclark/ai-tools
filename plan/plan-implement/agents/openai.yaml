@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Implement"
+  short_description: "Implement the next unfinished plan part"
+  default_prompt: "Use $plan-implement to implement the next unfinished part of this plan."
