@@ -1,7 +1,0 @@
-interface:
-  display_name: "spec:build"
-  short_description: "Discover requirements and build approved issue plans"
-  default_prompt: "Use $spec-build to discover this requirement and prepare an approved, dependency-ordered issue plan."
-
-policy:
-  allow_implicit_invocation: true

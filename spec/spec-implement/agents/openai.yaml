@@ -1,7 +1,0 @@
-interface:
-  display_name: "spec:implement"
-  short_description: "Load a Beads issue and its approved specification"
-  default_prompt: "Use $spec-implement to load Beads issue <ID>, its approved spec, and implement it in this workspace."
-
-policy:
-  allow_implicit_invocation: true
