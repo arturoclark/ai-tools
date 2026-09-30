@@ -1,0 +1,4 @@
+interface:
+  display_name: "Discovery"
+  short_description: "Explore questions and clarify requirements with evidence"
+  default_prompt: "Use $discovery to explore this topic, clarify what is known, and identify what needs more context."

@@ -31,7 +31,7 @@ If a required fact is missing and cannot be discovered from the repo or the curr
 
 The invocation may include a discovery file as an input. When one is supplied, use its confirmed scope, acceptance criteria, risks, dependencies, and verification expectations as the basis for the plan. Record the discovery file path in the plan's scope and assumptions.
 
-Do not invoke [Plan Discovery](plan-discovery/SKILL.md) automatically. If the supplied discovery file has an unresolved required fact, surface the exact question to the human and wait. Never turn a blocking unknown into a plan assumption.
+The [Discovery skill](../discovery/SKILL.md) can prepare this input, but it is optional. Do not invoke it automatically. If the supplied discovery file has an unresolved required fact, surface the exact question to the human and wait. Never turn a blocking unknown into a plan assumption.
 
 ## Invocation Mode and Question Collection
 

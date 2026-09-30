@@ -5,7 +5,7 @@ description: Implement the next unfinished part of an existing /plan plan, start
 
 # Plan Implement
 
-Implement one part per invocation. The input is a plan name, its directory, or its `plan.md` path, and may include additional parameters or instructions from the human. Plans produced by the sibling [Plan skill](../SKILL.md) use `<plan-directory>/<plan-slug>/plan.md` and record the checkout convention, base branch, planned part names, outcomes, tests, and completion protocol. Read the selected plan in full before changing the repository. Do not invoke the planning or discovery workflows again unless the human requests them.
+Implement one part per invocation. The input is a plan name, its directory, or its `plan.md` path, and may include additional parameters or instructions from the human. Plans produced by the Plan skill use `<plan-directory>/<plan-slug>/plan.md` and record the checkout convention, base branch, planned part names, outcomes, tests, and completion protocol. Read the selected plan in full before changing the repository. Do not invoke the planning or discovery workflows again unless the human requests them.
 
 ## Find the next part
 
