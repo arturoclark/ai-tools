@@ -37,6 +37,8 @@ Begin with the information already supplied. Identify the most important uncerta
 
 Use clear product language for human questions. Record material evidence with its source and the date it was observed or researched (`YYYY-MM-DD`). Date human input as received and label it as human input; do not present the observation date as the date an older source fact occurred. Summarize source material rather than copying it.
 
+Ask questions for the human in a normal assistant response and wait for a new prompt with the answers before continuing work that depends on them.
+
 Report the current understanding, relevant evidence, decisions or assumptions, remaining unknowns, and the next useful step. The depth and format should fit the request. A simple question may need only a concise answer; a complex requirement may need an evolving specification.
 
 ## Discovery File

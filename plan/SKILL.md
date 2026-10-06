@@ -33,15 +33,13 @@ The invocation may include a discovery file as an input. When one is supplied, u
 
 The [Discovery skill](../discovery/SKILL.md) can prepare this input, but it is optional. Do not invoke it automatically. If the supplied discovery file has an unresolved required fact, surface the exact question to the human and wait. Never turn a blocking unknown into a plan assumption.
 
-## Invocation Mode and Question Collection
+## Question Collection
 
-At the start of every invocation, preserve the current session mode and try to switch to the session's dedicated plan mode, if one exists. Use that mode's native question feature to collect every required question, including any missing installation question and other information needed to avoid guessing.
+Ask every required question, including any missing installation question and other information needed to avoid guessing, in a normal assistant response. Wait for the human to send a new prompt with the answers before continuing work that depends on them.
 
 Write every question in clear, human-readable product language. Do not use acronyms; spell out the meaning in plain words instead.
 
-After submitting the questions, restore the previous mode. If the native question interaction must remain active until answers arrive, restore the previous mode immediately after the answers return. If the previous mode was edit mode, return to edit mode. Do not leave the session in plan mode solely because this skill was invoked.
-
-If the session cannot switch to plan mode or does not offer a native question feature, ask the required questions in a normal assistant response and wait for the human to send a new prompt with the answers. Do not inspect the repository, create a plan, or take other planning actions until that answer prompt arrives.
+Do not inspect the repository, create a plan, or take other planning actions until the answer prompt arrives.
 
 For the current turn after question collection:
 
