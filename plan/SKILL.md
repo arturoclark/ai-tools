@@ -35,11 +35,11 @@ The [Discovery skill](../discovery/SKILL.md) can prepare this input, but it is o
 
 ## Question Collection
 
-Ask every required question, including any missing installation question and other information needed to avoid guessing, in a normal assistant response. Wait for the human to send a new prompt with the answers before continuing work that depends on them.
+If the invocation supplies a plan file, read that file first to determine whether it answers the required checkout and testing questions. This is the only planning action allowed before question collection is complete. Ask every question whose answer is still missing or ambiguous, including any missing installation question and other information needed to avoid guessing, in a normal assistant response. Wait for the human to send a new prompt with the answers before continuing work that depends on them.
 
 Write every question in clear, human-readable product language. Do not use acronyms; spell out the meaning in plain words instead.
 
-Do not inspect the repository, create a plan, or take other planning actions until the answer prompt arrives.
+Do not inspect the repository, create a plan, or take other planning actions until the answer prompt arrives, except for reading a plan file supplied with the invocation as described above. If the supplied file resolves every required question, continue without an answer prompt.
 
 For the current turn after question collection:
 
@@ -51,15 +51,17 @@ For the current turn after question collection:
 
 ## Required Questions
 
-Ask these exact questions, in this order, on every invocation, even if related details appear in the repo or current conversation:
+Ask these exact questions, in this order, on every invocation that does not supply a plan file:
 
 > Should this plan use regular branches or worktrees?
 
 > Besides unit tests, where should this plan be tested?
 
-Record the answers in the plan. The second answer establishes the implementation checkout convention. The third establishes the additional test environments, flows, systems, or QA process that the plan must cover; it does not replace unit-test planning.
+When a plan file is supplied, infer each answer from the file if its checkout convention or additional testing location or process is clear. Ask only the question or questions that the file cannot answer, using the exact wording and order above. Do not fill gaps from repository conventions or guesses.
 
-If an answer is not supplied, do not assume it from the current branch or repository conventions. Wait for the human's answer before continuing.
+Record the answers, whether inferred from the supplied plan file or provided by the human, in the plan. The first establishes the implementation checkout convention. The second establishes the additional test environments, flows, systems, or QA process that the plan must cover; it does not replace unit-test planning.
+
+If an answer cannot be inferred from a supplied plan file and is not provided by the human, do not assume it from the current branch or repository conventions. Wait for the human's answer before continuing.
 
 ## What To Discover First
 
