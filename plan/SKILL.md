@@ -183,11 +183,22 @@ Write a natural-language description of the outcome for that part. Focus on what
 
 ### Acceptance criteria
 
-Describe the product outcomes and all development needed for the part in product language. Write one or more criteria in this form:
+Write user-journey-based acceptance criteria in product language: where the user starts, what they do, under which conditions, what they observe, and why it matters. Use this adaptable form:
 
-`As a <subject>, I want <feature or outcome> so that <value>.`
+`As a <role>, in <actual product area>, after <navigation or context>, when I <action> with <conditions>, I want <observable result> so that <purpose>.`
 
-These criteria must state what a user, operator, or system needs to achieve, not the implementation mechanism.
+Include the actual entry point and trigger needed to locate and exercise the behavior. Preserve known screen, navigation, and control labels in their original language. Discover missing workflow facts from available context or the repo; if required facts remain unknown, say `I don't know, help me get more context` and ask for them. Never invent screens, controls, navigation, or business rules.
+
+For non-UI work, use the known caller or process, entry point, and triggering event instead of screens and clicks. Adapt the sentence to read naturally; omit clauses that do not apply. Keep each criterion concise and complete, sharing common journey context above related criteria when that avoids repeating a long walkthrough.
+
+State observable product behavior rather than implementation mechanisms. Cover successful and blocked outcomes where applicable, including what the user sees and what they need to correct. Include concrete accepted/rejected cases, boundaries, or numeric examples when they clarify the behavior and are supported by confirmed requirements. Keep schema names, code paths, implementation mechanisms, and test commands in `Technical details` or `Verification`.
+
+Example using a confirmed workflow:
+
+- Before: “As a reconciliation operator, I want all-zero and all-positive uploaded dimension sets accepted so that valid carrier files can be processed.”
+- After: “As a reconciliation operator, in ‘Conciliación de guías’, after opening a record from ‘Historial de cargas’ and grouping guides by user, when I click ‘Generar reporte’ for that user, I want guides with uploaded dimensions of 0×0×0 or all greater than zero (for example, 10×12×20) included in the priced report, provided the other required pricing information is available, so that I can review and share it.”
+
+Use the example's structure, not its domain rules, for other plans.
 
 ### Technical details
 
@@ -287,7 +298,10 @@ Before saving, check that:
 
 - each part has a verifiable outcome
 - each part includes `What to achieve`, `Acceptance criteria`, `Technical details`, `Expected results`, `Verification`, `Verification > Tests`, `Actual implementation and changes`, and `Completion protocol`
-- the acceptance criteria and test criteria use the required product-language forms
+- the acceptance criteria describe a known entry point, navigation/context, trigger, conditions, observable result, and purpose, using shared context where helpful; non-UI criteria use a known caller/process and trigger
+- actual product labels and their language are preserved, with no invented workflow or business decisions
+- successful and blocked outcomes are covered where applicable, with concrete cases or numeric examples when useful and confirmed
+- acceptance criteria stay in product language; implementation and test commands belong in technical/verification sections, and test criteria use the required QA form
 - the planned branch or worktree name is recorded for each part
 - the checkout convention, base branch, and base source are recorded, or explicitly listed as open questions
 - unit-test and additional-test handling are recorded
