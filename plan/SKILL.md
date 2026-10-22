@@ -220,6 +220,10 @@ Describe in natural language what should be true when the part is finished. This
 
 Write a step-by-step verification section separated into frontend and backend flows when both apply. It must include the human-visible checks and the test work for this part.
 
+Describe product-facing verification flows in the same user-journey-based style as acceptance criteria: actual entry point, navigation/context, action, conditions, observable result, and purpose. Shared context can introduce the numbered steps; preserve actual product labels and include concrete cases when useful. Apply this to manual checks and automated product flows alike.
+
+Technical checks, such as unit tests, running commands, builds, or schema checks, use direct technical instructions with the relevant command or check and expected result. They do not require a user journey or an “As a…” sentence.
+
 Format the flow as readable numbered steps with inline expected results, for example:
 
 ```md
@@ -227,8 +231,8 @@ Format the flow as readable numbered steps with inline expected results, for exa
 
 1. Start the app in your normal dev setup.
 
-2. Open the relevant page or flow.
-   Expected result: the page loads with the new state visible.
+2. Follow the confirmed navigation to the named product area, perform the feature's action with the specified input, and check the result.
+   Expected result: the observable outcome described in the acceptance criterion appears, enabling the user's stated purpose.
 
 • Backend
 
@@ -246,11 +250,13 @@ Rules:
 
 #### Tests
 
-Within `Verification`, describe all test development for the part in product language. Use one or more criteria in this form:
+Within `Verification`, describe product-facing test scenarios in the same user-journey-based style as acceptance criteria, including the user's actual entry point, action, conditions, observable outcome, and purpose. Use this adaptable form when writing a test criterion:
 
-`As a QA developer, I want to verify <behavior and conditions> so that <user or system outcome> remains reliable.`
+`As a QA developer, I want to verify that <role>, starting at <actual entry point or context>, can <action under conditions> and observe <result> so that <user or system purpose> remains reliable.`
 
-For every criterion, specify the test level or process, the behavior to exercise, and the expected result. Include:
+Describe technical tests, including unit tests and command execution, directly: specify the unit or check, inputs or conditions, command or suite when known, and expected result. Do not force these into a user journey or the QA sentence form. When a product scenario also needs a command to run it, keep the scenario in journey language and list the command separately.
+
+For every test, specify the test level or process, the behavior to exercise, and the expected result. Include:
 
 - new or updated coverage for the part's acceptance criteria
 - the command, suite, environment, or QA flow that proves it when known
@@ -301,7 +307,7 @@ Before saving, check that:
 - the acceptance criteria describe a known entry point, navigation/context, trigger, conditions, observable result, and purpose, using shared context where helpful; non-UI criteria use a known caller/process and trigger
 - actual product labels and their language are preserved, with no invented workflow or business decisions
 - successful and blocked outcomes are covered where applicable, with concrete cases or numeric examples when useful and confirmed
-- acceptance criteria stay in product language; implementation and test commands belong in technical/verification sections, and test criteria use the required QA form
+- acceptance criteria, product-facing verifications, and product-facing test scenarios use the same user-journey-based product language; technical checks and unit tests use direct technical instructions, with commands separate from product scenarios
 - the planned branch or worktree name is recorded for each part
 - the checkout convention, base branch, and base source are recorded, or explicitly listed as open questions
 - unit-test and additional-test handling are recorded
