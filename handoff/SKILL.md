@@ -7,7 +7,7 @@ description: Create a detailed handoff summary for the current working context a
 
 Create a handoff that another agent can resume from without re-discovering important context. Optimize for completeness, accuracy, and continuation value.
 
-The handoff is documentation, not authorization to act. When the user states what should happen next, treat it as instructions for the later session that receives this handoff as context. Do not perform, begin, schedule, or otherwise take those requested actions in the current session unless the user separately and explicitly asks to do so.
+The handoff is documentation, not authorization to act. Treat every action mentioned for inclusion in the handoff as deferred work for the next session where the handoff is invoked. Do not perform, begin, schedule, investigate, implement, or validate those actions in the current session, even when phrased as direct commands. Record them for the next session instead. In the current session, only gather existing context and create the handoff; do not carry out included work to make the handoff more complete.
 
 ## Inputs
 
@@ -33,7 +33,7 @@ If the requested scope is ambiguous and cannot be resolved from existing context
 3. Write a continuation-oriented summary.
    Prefer concise sections and bullets.
    Include the facts another agent would otherwise need to rediscover.
-   Put any user-stated future work in `## Next Steps` (or another clearly labeled continuation section), so it is understood as context for the next session rather than a task for the current one.
+   Put every action mentioned for inclusion in `## Next Steps` (or another clearly labeled continuation section). Preserve it as deferred work for the next session where the handoff is invoked; do not execute it while preparing the summary.
 
 4. Create the markdown file with `scripts/write_handoff.py`.
    Pass `--context-name` and pipe the markdown body through stdin.
@@ -65,7 +65,7 @@ Include the relevant subset of these sections. Omit empty sections instead of fi
 - Include exact command lines when they are likely to be rerun.
 - Record failed attempts only when they change the next step or prevent repeated work.
 - Keep the summary dense. Do not pad it with generic prose.
-- Treat instructions about future work as quoted or clearly attributed continuation instructions. Do not reinterpret them as authorization to execute work while creating the handoff.
+- Treat actions mentioned for inclusion as quoted or clearly attributed continuation instructions, regardless of phrasing. Leave all such work for the next session where the handoff is invoked.
 
 ## File Creation
 
