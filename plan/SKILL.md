@@ -191,7 +191,23 @@ Include the actual entry point and trigger needed to locate and exercise the beh
 
 For non-UI work, use the known caller or process, entry point, and triggering event instead of screens and clicks. Adapt the sentence to read naturally; omit clauses that do not apply. Keep each criterion concise and complete, sharing common journey context above related criteria when that avoids repeating a long walkthrough.
 
-State observable product behavior rather than implementation mechanisms. Cover successful and blocked outcomes where applicable, including what the user sees and what they need to correct. Include concrete accepted/rejected cases, boundaries, or numeric examples when they clarify the behavior and are supported by confirmed requirements. Keep schema names, code paths, implementation mechanisms, and test commands in `Technical details` or `Verification`.
+State observable product behavior, including the interactions needed to deliver it. Cover successful and blocked outcomes where applicable, including what the user or caller observes and what they need to correct. Include concrete accepted/rejected cases, boundaries, or numeric examples when they clarify the behavior and are supported by confirmed requirements. Keep internal schema names, code paths, implementation mechanisms, and test commands in `Technical details` or `Verification`; externally observable API contract details belong in acceptance criteria when needed to specify the interaction.
+
+Keep each user-journey-based criterion as a bullet. Only when it needs interaction design–level acceptance criteria, derive a numbered list directly beneath that criterion, indented under its bullet. These details specify how the actor or caller reaches and uses the outcome; they supplement the journey sentence rather than replace it. Do not add them to every criterion or repeat behavior already clear in the sentence.
+
+Use only the details needed to make that interaction actionable and verifiable. Depending on the criterion, these may include actor/caller, entry point, inputs, control and label, request or action, navigation or response, observable result, next action, and purpose. This is not a fixed checklist or order. Apply it to UI, API, and other non-UI interactions alike: for an API, the needed details might be the operation, request inputs, returned status/data, and how the caller uses the response next.
+
+Ground existing interactions in the supplied context or repository. Identify requested new controls, navigation, or API interactions explicitly as additions. Do not silently turn an illustrative example into an approved design. If a required interaction decision is unresolved, say `I don't know, help me get more context` and ask for that decision.
+
+Example format, assuming the human has confirmed the proposed history entry point and label:
+
+```md
+- As a reconciliation operator, when saving a correction and reopening the user's report, I want the corrected amounts retained and the earlier report version preserved so that I can review both what was previously reported and what changed.
+  1. Add “View old reports” to each record's details menu so the operator can access earlier saved reports for that record.
+  2. Selecting “View old reports” shows the saved versions; opening one displays that version's saved amounts for review.
+```
+
+This illustrates placement and detail, not a required history feature or a requirement for a visual comparison. Criteria whose interactions are already clear remain standalone journey bullets.
 
 Example using a confirmed workflow:
 
@@ -220,7 +236,7 @@ Describe in natural language what should be true when the part is finished. This
 
 Write a step-by-step verification section separated into frontend and backend flows when both apply. It must include the human-visible checks and the test work for this part.
 
-Describe product-facing verification flows in the same user-journey-based style as acceptance criteria: actual entry point, navigation/context, action, conditions, observable result, and purpose. Shared context can introduce the numbered steps; preserve actual product labels and include concrete cases when useful. Apply this to manual checks and automated product flows alike.
+Describe product-facing verification flows in the same user-journey-based style as acceptance criteria: actual entry point, navigation/context, action, conditions, observable result, and purpose. Shared context can introduce the numbered steps; preserve actual product labels and include concrete cases when useful. Apply this to manual checks and automated product flows alike. Exercise the interaction details attached to each applicable criterion, including API caller interactions when relevant.
 
 Technical checks, such as unit tests, running commands, builds, or schema checks, use direct technical instructions with the relevant command or check and expected result. They do not require a user journey or an “As a…” sentence.
 
@@ -259,6 +275,7 @@ Describe technical tests, including unit tests and command execution, directly: 
 For every test, specify the test level or process, the behavior to exercise, and the expected result. Include:
 
 - new or updated coverage for the part's acceptance criteria
+- coverage of any interaction details beneath those criteria, using the same entry points, actions/inputs, observable results, and next actions
 - the command, suite, environment, or QA flow that proves it when known
 - regression coverage for affected pre-existing flows, including changes to old code
 
@@ -305,6 +322,7 @@ Before saving, check that:
 - each part has a verifiable outcome
 - each part includes `What to achieve`, `Acceptance criteria`, `Technical details`, `Expected results`, `Verification`, `Verification > Tests`, `Actual implementation and changes`, and `Completion protocol`
 - the acceptance criteria describe a known entry point, navigation/context, trigger, conditions, observable result, and purpose, using shared context where helpful; non-UI criteria use a known caller/process and trigger
+- only criteria needing interaction design detail have a numbered list directly beneath their journey bullet; those details make the relevant UI, API, or other interaction actionable and verifiable without prescribing internal implementation
 - actual product labels and their language are preserved, with no invented workflow or business decisions
 - successful and blocked outcomes are covered where applicable, with concrete cases or numeric examples when useful and confirmed
 - acceptance criteria, product-facing verifications, and product-facing test scenarios use the same user-journey-based product language; technical checks and unit tests use direct technical instructions, with commands separate from product scenarios
