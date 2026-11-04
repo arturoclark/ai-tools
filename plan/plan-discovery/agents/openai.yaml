@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Discovery"
+  short_description: "Research features and clarify readiness for planning"
+  default_prompt: "Use $plan-discovery to research this feature, clarify its proposed behavioral acceptance criteria, and assess readiness for planning."

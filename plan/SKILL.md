@@ -27,19 +27,23 @@ Create a planning artifact only. Do not implement code, modify product files, or
 
 If a required fact is missing and cannot be discovered from the repo or the current conversation, do not guess. Say: `I don't know, help me get more context`.
 
-## Optional Discovery Input
+## Optional Plan Discovery Input
 
-The invocation may include a discovery file as an input. When one is supplied, use its confirmed scope, acceptance criteria, risks, dependencies, and verification expectations as the basis for the plan. Record the discovery file path in the plan's scope and assumptions.
+The invocation may include a discovery file as an input. When one is supplied, use its current scope, proposed behavioral acceptance criteria, risks, dependencies, and verification expectations as the basis for the plan. Record the discovery file path in the plan's scope and assumptions. Preserve the behavioral outcomes and criterion identifiers when adding the journey and verification detail required by this plan format. Distinguish human-confirmed requirements from proposals; candidate implementation approaches are planning inputs, not automatically approved requirements. Resolve material product decisions rather than silently approving them.
 
-The [Discovery skill](../discovery/SKILL.md) can prepare this input, but it is optional. Do not invoke it automatically. If the supplied discovery file has an unresolved required fact, surface the exact question to the human and wait. Never turn a blocking unknown into a plan assumption.
+The `$plan-discovery` skill replaces `$discovery` and can prepare this input, but it is optional. Its repository source is [plan-discovery/SKILL.md](plan-discovery/SKILL.md); in the installed sibling layout, resolve it at `../plan-discovery/SKILL.md`. Do not invoke it automatically.
+
+Read the supplied discovery's `Current understanding`, `Proposed behavioral acceptance criteria`, each criterion's `Proposed implementation approach` and `Discovery gaps and caveats`, `Open questions`, `Prototype`, and `Ready for plan` sections. Use dated history to understand resolved gaps and superseded decisions; do not treat historical items as current blockers. Carry applicable prototype findings and limitations into the plan without treating the prototype as completed production implementation.
+
+If `Ready for plan: No` or a current gap blocks accurate planning, surface the exact missing context and wait before creating the plan. `Ready for plan: Yes` does not confirm every proposal or authorize implementation. Preserve non-blocking caveats explicitly in the plan's scope, technical details, or verification as appropriate. Never turn a blocking unknown into a plan assumption. Do not modify the discovery file during planning; its maintenance belongs to `$plan-discovery`.
 
 ## Question Collection
 
-If the invocation supplies a plan file, read that file first to determine whether it answers the required checkout and testing questions. This is the only planning action allowed before question collection is complete. Ask every question whose answer is still missing or ambiguous, including any missing installation question and other information needed to avoid guessing, in a normal assistant response. Wait for the human to send a new prompt with the answers before continuing work that depends on them.
+If the invocation supplies a plan file, read that file first to determine whether it answers the required checkout and testing questions. Also read any supplied discovery file to identify its planning inputs and blockers. Reading these supplied files is the only planning action allowed before question collection is complete. Ask every question whose answer is still missing or ambiguous, including any missing installation question and other information needed to avoid guessing, in a normal assistant response. Wait for the human to send a new prompt with the answers before continuing work that depends on them.
 
 Write every question in clear, human-readable product language. Do not use acronyms; spell out the meaning in plain words instead.
 
-Do not inspect the repository, create a plan, or take other planning actions until the answer prompt arrives, except for reading a plan file supplied with the invocation as described above. If the supplied file resolves every required question, continue without an answer prompt.
+Do not inspect the repository, create a plan, or take other planning actions until the answer prompt arrives, except for reading supplied plan and discovery files as described above. If a supplied plan file resolves every required question and the discovery has no planning blockers, continue without an answer prompt.
 
 For the current turn after question collection:
 
