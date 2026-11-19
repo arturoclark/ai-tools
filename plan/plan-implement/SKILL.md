@@ -30,7 +30,7 @@ If the base ref is missing, earlier parts have not been incorporated into it, or
 
 ## Implement and verify the part
 
-Implement the selected part's outcome and acceptance criteria, including the test additions or updates specified under `Verification > Tests`. Inspect existing behavior before editing and follow repository instructions. Keep changes within the selected part, except for necessary supporting changes. Run the relevant automated tests and executable verification steps specified by the plan, plus focused checks needed for the actual changes. Do not claim a manual, external, or unavailable check passed; identify what remains for the human.
+Implement the selected part's outcome and acceptance criteria, including the test additions or updates specified under `Verification > Tests`. Inspect existing behavior before editing and follow repository instructions. Keep changes within the selected part, except for necessary supporting changes. Run every verification step specified for the selected part, plus focused checks needed for the actual changes. Omit a step only when execution is not possible, such as an unavailable dependency, missing access, or required human action; explain the specific reason in the plan and the final verification table. Do not claim a manual, external, or unavailable check passed; identify what remains for the human.
 
 Reconcile the part's acceptance criteria, expected results, and verification steps with the result. In `Actual implementation and changes`, record the changes, deviations, reasons, test commands and results, and any human review changes. Follow the plan's completion protocol: correct outdated plan text in place with a short reason, and mark the part done with the device date and time only when its required completion and verification are satisfied. If implementation is complete but a required check remains, leave a truthful in-progress status and record the pending check. Do not advance to another part in this invocation.
 
@@ -43,9 +43,11 @@ In the final response, repeat the same acceptance criteria in their original ord
 Always include a verification table in the final response after implementing a part, including when it is blocked or only partly implemented. Use exactly three columns: `Step | Result | Status`.
 
 - `Step`: the verification step number, preserving the plan's numbering when present; otherwise number steps sequentially in plan order.
-- `Result`: what was verified and the observed successful or failed outcome; for an unrun check, state the reason, expected outcome, and action needed.
+- `Result`: what was verified and the observed successful or failed outcome; for a failed check, include the failure reason when known, or explicitly state that it is unknown. For an unrun or blocked check, state the specific reason execution was not possible, expected outcome, and action needed.
 - `Status`: exactly `Passed`, `Failed`, or `Not run`.
 
 Include every step in the selected part's `Verification` section, plus any additional checks performed. A step requiring human verification remains `Not run` by the agent until the human completes it; report human confirmation explicitly in `Result` when provided.
+
+When any verification failed, was not run, or was blocked, add a list immediately below the table with one entry per affected step. Reference its step number, explain why it failed or could not run, and state the action needed to resolve it. If the failure reason is unknown, say so and identify the investigation needed. Report blocked checks as `Not run` in the table and identify the blocker in both `Result` and this list.
 
 Always include `Next steps` in the final response. When the commit choice is still open, ask for it first, before other next steps. State the specific action needed for every outstanding item, including tests specified for this part that were not developed. Distinguish these from useful tests outside this part's specified test work. If nothing else remains for this part, say so and identify the next plan part when one exists. Also report the part's completion state or exact blocker, branch and worktree path if applicable, implementation summary, test results, and commit state. Do not present an unverified part as complete.
